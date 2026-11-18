@@ -584,7 +584,7 @@ const handleAction = async (type, row) => {
 
         const payload = {
             type: 'view',
-            userId: userId.values,
+            userId: userId.value,
             id: row.ID,
             name: row.名稱,
             flavor: row.口味 || '',
@@ -618,7 +618,7 @@ const handleAction = async (type, row) => {
 
     try {
         loading.value = true
-        const payload = { type: type, userId: userId.values, id: row.ID, name: row.名稱 }
+        const payload = { type: type, userId: userId.value, id: row.ID, name: row.名稱 }
         const result = await postGasData(payload)
         if (result && result[0] && result[0].status === 'success') {
             alert(`${title}成功！${result[0].alert || ''}`)
@@ -640,7 +640,7 @@ const handleDeleteUserOrder = async (userName) => {
 
     const payload = {
         type: 'deluser',
-        userId: userId.values,
+        userId: userId.value,
         user: userName,
         id: currentItemId.value,
         name: currentOrderTitle.value
@@ -765,7 +765,7 @@ const handleAiHelp = async (mode) => {
         submittingItem.value = true
         const result = await postGasData({
             type: mode,
-            userId: userId.values,
+            userId: userId.value,
             keyword: newItemForm.name
         })
         if (result && result[0] && result[0].status === 'success') {
@@ -807,7 +807,7 @@ const submitAddItem = async () => {
 
     const payload = {
         type: 'create', // 可依您原本 submitForm 送往 GAS 的 type 名稱微調
-        userId: userId.values,
+        userId: userId.value,
         itemType: newItemForm.itemType,
         name: newItemForm.name.trim(),
         startDate: newItemForm.startDate,
