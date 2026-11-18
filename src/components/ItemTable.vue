@@ -432,7 +432,19 @@ const newItemForm = reactive({
     scheduleEndDate: ''
 })
 
-const userId = window.userId || 'LINE_USER_ID_PLACEHOLDER'
+const getInitialUserId = () => {
+    const urlParams = new URLSearchParams(window.location.search)
+    const paramUserId = urlParams.get('userId')
+    
+    if (paramUserId) {
+        localStorage.setItem('cached_userId', paramUserId)
+        return paramUserId
+    }
+    
+    return localStorage.getItem('cached_userId') || 'LINE_USER_ID_PLACEHOLDER'
+}
+
+const userId = ref(getInitialUserId())
 
 const loadData = async () => {
     loading.value = true
@@ -842,21 +854,16 @@ const closeOrderModal = () => {
 }
 
 onMounted(() => {
-    loadData()
-    window.addEventListener('click', closeDropdowns)
-
-    // 優先從網址列抓取 ?userId=xxx
     const urlParams = new URLSearchParams(window.location.search)
     const paramUserId = urlParams.get('userId')
-
     if (paramUserId) {
         userId.value = paramUserId
-        // 順便存進 localStorage，防止重新整理或換頁時遺失
         localStorage.setItem('cached_userId', paramUserId)
-    } else {
-        // 如果網址沒有，退回檢查 localStorage 或是設定測試預設值
-        userId.value = localStorage.getItem('cached_userId') || 'TEST_USER'
     }
+
+    console.log("目前使用的 userId:", userId.value)
+    loadData()
+    window.addEventListener('click', closeDropdowns)
 })
 
 onUnmounted(() => {
