@@ -45,7 +45,7 @@ onMounted(async () => {
 
         // 1. 初始化 LIFF (請替換為您的 LIFF ID)
         if (window.liff) {
-            await window.liff.init({ liffId: "2007457926-5wAYNP0w" })
+            await window.liff.init({ liffId: "2007457926-6GlfMVC3" })
 
             if (!window.liff.isLoggedIn()) {
                 window.liff.login()
