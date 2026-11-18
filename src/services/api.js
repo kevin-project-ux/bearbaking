@@ -17,35 +17,35 @@ let order_chart;
 let price_chart;
 
 // 驗證使用者權限
-export async function authUser(userId) {
+// export async function authUser(userId) {
 
-    var data = { type: 'auth', userId: userId };
+//     var data = { type: 'auth', userId: userId };
 
-    try {
-        mask.style.display = 'flex';
-        const response = await fetch(GAS_URL, {
-            method: 'POST',
-            headers: { 'Content-Type': 'text/plain' },
-            body: JSON.stringify(data)
-        });
+//     try {
+//         mask.style.display = 'flex';
+//         const response = await fetch(GAS_URL, {
+//             method: 'POST',
+//             headers: { 'Content-Type': 'text/plain' },
+//             body: JSON.stringify(data)
+//         });
 
-        const result = await response.json();
+//         const result = await response.json();
 
-        if (result[0].status == 'success' && result[0].auth) {
+//         if (result[0].status == 'success' && result[0].auth) {
 
-            Swal.fire({ icon: 'success', title: '驗證成功' });
-            data = await fetchData(result[0].data);
-            saveAuthCache(userId);
-        } else {
-            Swal.fire({ icon: 'error', title: '驗證失敗', text: '您無權限使用此頁面' });
-            window.location.href = "/";
-        }
-    } catch (err) {
-        Swal.fire({ icon: 'error', title: '系統異常' });
-    } finally {
-        mask.style.display = 'none';
-    }
-}
+//             Swal.fire({ icon: 'success', title: '驗證成功' });
+//             data = await fetchData(result[0].data);
+//             saveAuthCache(userId);
+//         } else {
+//             Swal.fire({ icon: 'error', title: '驗證失敗', text: '您無權限使用此頁面' });
+//             window.location.href = "/";
+//         }
+//     } catch (err) {
+//         Swal.fire({ icon: 'error', title: '系統異常' });
+//     } finally {
+//         mask.style.display = 'none';
+//     }
+// }
 
 /* 取得並整理品項與口味列表資料 */
 export async function fetchItemsData(cachedData = null) {
@@ -326,7 +326,7 @@ export async function gasPostData(data) {
 //---------------------------------------------------------------------------------------------//
 
 // 帳號ID存快取
-function saveAuthCache(userId) {
-    const data = { userId: userId, timestamp: Date.now() };
-    localStorage.setItem('AUTH_CACHE_KEY', JSON.stringify(data));
-}
+// function saveAuthCache(userId) {
+//     const data = { userId: userId, timestamp: Date.now() };
+//     localStorage.setItem('AUTH_CACHE_KEY', JSON.stringify(data));
+// }

@@ -844,6 +844,19 @@ const closeOrderModal = () => {
 onMounted(() => {
     loadData()
     window.addEventListener('click', closeDropdowns)
+
+    // 優先從網址列抓取 ?userId=xxx
+    const urlParams = new URLSearchParams(window.location.search)
+    const paramUserId = urlParams.get('userId')
+
+    if (paramUserId) {
+        userId.value = paramUserId
+        // 順便存進 localStorage，防止重新整理或換頁時遺失
+        localStorage.setItem('cached_userId', paramUserId)
+    } else {
+        // 如果網址沒有，退回檢查 localStorage 或是設定測試預設值
+        userId.value = localStorage.getItem('cached_userId') || 'TEST_USER'
+    }
 })
 
 onUnmounted(() => {
