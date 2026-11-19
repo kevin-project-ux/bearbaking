@@ -56,21 +56,41 @@
                         </div>
                     </div>
 
-                    <!-- 第二行：品項名稱獨佔一行 -->
-                    <div class="card-line-title">
-                        <h3 class="item-title">{{ row.名稱 }}</h3>
+                    <!-- 第二行：品項名稱 + 右側緊湊縮圖 -->
+                    <div class="card-line-title-row">
+                        <h3 class="item-title flex-1">{{ row.名稱 }}</h3>
+                        <div v-if="getItemImageUrls(row.ID, row.名稱).length > 0" class="card-thumb-strip">
+                            <img
+                                v-for="(imgUrl, idx) in getItemImageUrls(row.ID, row.名稱)"
+                                :key="idx"
+                                :src="imgUrl"
+                                :alt="`${row.名稱} 圖片 ${idx + 1}`"
+                                class="card-mini-thumb"
+                                loading="lazy"
+                            />
+                        </div>
                     </div>
 
-                    <!-- 第三行：單一口味與多口味的智慧判斷 -->
+                    <!-- 第三行：單一口味與多口味的智慧判斷 + 限量剩餘提醒 -->
                     <div class="card-line-info">
                         <!-- 單一口味 -->
                         <div class="single-item-info" v-if="getValidFlavors(row.ID).length === 0">
                             <span class="price-single" v-if="row.售價 && row.售價 !== '---'">
                                 售價: ${{ row.售價 }}
                             </span>
-                            <span v-if="getSingleItemLimit(row.ID)" class="limit-badge">
-                                限量: {{ getSingleItemLimit(row.ID) }}
-                            </span>
+                            <template v-if="getSingleItemLimit(row.ID) > 0">
+                                <span
+                                    :class="[
+                                        'limit-badge',
+                                        {
+                                            'limit-over': getSingleRemaining(row) < 0,
+                                            'limit-soldout': getSingleRemaining(row) === 0
+                                        }
+                                    ]"
+                                >
+                                    限量: {{ getSingleItemLimit(row.ID) }} ({{ formatRemainingText(getSingleRemaining(row)) }})
+                                </span>
+                            </template>
                             <span v-if="hasValidDeadline(row)" class="time-badge">
                                 限時: {{ row.限時開始 }} ~ {{ row.限時結束 }}
                             </span>
@@ -85,7 +105,18 @@
                                 class="flavor-mini-tag"
                             >
                                 {{ flv.口味 }} <b class="text-emerald">${{ flv.價格 }}</b>
-                                <span v-if="flv.限量" class="limit-badge">限量: {{ flv.限量 }}</span>
+                                <span
+                                    v-if="Number(flv.限量) > 0"
+                                    :class="[
+                                        'limit-badge',
+                                        {
+                                            'limit-over': getFlavorRemaining(row, flv) < 0,
+                                            'limit-soldout': getFlavorRemaining(row, flv) === 0
+                                        }
+                                    ]"
+                                >
+                                    限量: {{ flv.限量 }} ({{ formatRemainingText(getFlavorRemaining(row, flv)) }})
+                                </span>
                             </span>
                             <span v-if="hasValidDeadline(row)" class="time-badge">
                                 限時: {{ row.限時開始 }} ~ {{ row.限時結束 }}
@@ -149,95 +180,102 @@
         <!-- ==================== TAB 2: 歷史訂單 ==================== -->
         <div v-show="activeMainTab === 'history'">
             <div class="dashboard-top-bar">
-                <button class="btn-primary-action" @click="openSearchModal">
+                <button class="btn-primary-action" @click="openSearchModal" :disabled="historyLoading">
                     🔍 條件查詢
                 </button>
-                <button class="btn-refresh" @click="reloadHistoryCache">
+                <button class="btn-refresh" @click="reloadHistoryCache" :disabled="historyLoading">
                     重整快取
                 </button>
             </div>
 
-            <!-- 查詢結果摘要標題 -->
-            <div v-if="historyResultTitle" class="history-summary-header">
-                <strong>{{ historyResultTitle }}</strong>
-                <span class="text-muted text-xs" v-if="historyResultSubtitle">{{ historyResultSubtitle }}</span>
+            <!-- 歷史查詢載入中動畫 -->
+            <div v-if="historyLoading" class="history-loading-box">
+                <div class="spinner-ring"></div>
+                <p class="history-loading-text">正在查詢歷史紀錄，請稍候...</p>
             </div>
 
-            <!-- 少於 3 筆：表格明細 -->
-            <div v-if="historyViewMode === 'table'" class="card-list">
-                <div v-if="historyTableRows.length === 0" class="empty-state">
-                    <p>目前沒有符合條件的歷史訂單資料</p>
+            <template v-else>
+                <!-- 查詢結果摘要標題 -->
+                <div v-if="historyResultTitle" class="history-summary-header">
+                    <strong>{{ historyResultTitle }}</strong>
+                    <span class="text-muted text-xs" v-if="historyResultSubtitle">{{ historyResultSubtitle }}</span>
                 </div>
 
-                <div v-for="hRow in historyTableRows" :key="hRow.ID" class="item-card-compact">
-                    <div class="card-line-top">
-                        <span class="status-pill status-closed">歷史開團</span>
-                        <span class="total-highlight">總金額: ${{ Number(hRow.訂單金額總計 || 0).toLocaleString() }}</span>
+                <!-- 少於 3 筆：表格明細 -->
+                <div v-if="historyViewMode === 'table'" class="card-list">
+                    <div v-if="historyTableRows.length === 0" class="empty-state">
+                        <p>目前沒有符合條件的歷史訂單資料</p>
                     </div>
-                    <div class="card-line-title">
-                        <h3 class="item-title">{{ hRow.名稱 }}</h3>
-                    </div>
-                    <div class="card-line-info">
-                        <div class="single-item-info">
-                            <span class="price-single">
-                                售價: {{ hRow.售價 === '---' ? '多口味' : `$${hRow.售價}` }}
-                            </span>
-                            <span class="time-badge" v-if="hRow.開啟時間">
-                                開團時間: {{ String(hRow.開啟時間).slice(0, 10) }}
-                            </span>
+
+                    <div v-for="hRow in historyTableRows" :key="hRow.ID" class="item-card-compact">
+                        <div class="card-line-top">
+                            <span class="status-pill status-closed">歷史開團</span>
+                            <span class="total-highlight">總金額: ${{ Number(hRow.訂單金額總計 || 0).toLocaleString() }}</span>
                         </div>
-                        <!-- 若為多口味，展開顯示各口味價格 -->
-                        <div v-if="hRow.售價 === '---'" class="flavor-inline-list mt-1">
-                            <span
-                                v-for="flv in getHistoryRowFlavors(hRow.ID)"
-                                :key="flv.口味"
-                                class="flavor-mini-tag"
+                        <div class="card-line-title-row">
+                            <h3 class="item-title flex-1">{{ hRow.名稱 }}</h3>
+                        </div>
+                        <div class="card-line-info">
+                            <div class="single-item-info">
+                                <span class="price-single">
+                                    售價: {{ hRow.售價 === '---' ? '多口味' : `$${hRow.售價}` }}
+                                </span>
+                                <span class="time-badge" v-if="hRow.開啟時間">
+                                    開團時間: {{ String(hRow.開啟時間).slice(0, 10) }}
+                                </span>
+                            </div>
+                            <div v-if="hRow.售價 === '---'" class="flavor-inline-list mt-1">
+                                <span
+                                    v-for="flv in getHistoryRowFlavors(hRow.ID)"
+                                    :key="flv.口味"
+                                    class="flavor-mini-tag"
+                                >
+                                    {{ flv.口味 }} <b class="text-emerald">${{ flv.價格 }}</b>
+                                </span>
+                            </div>
+                        </div>
+                        <div class="card-line-footer">
+                            <button
+                                class="action-btn btn-view-full"
+                                @click="handleAction('view', { ...hRow, search: 'Y' })"
                             >
-                                {{ flv.口味 }} <b class="text-emerald">${{ flv.價格 }}</b>
-                            </span>
-                        </div>
-                    </div>
-                    <div class="card-line-footer">
-                        <button
-                            class="action-btn btn-view-full"
-                            @click="handleAction('view', { ...hRow, search: 'Y' })"
-                        >
-                            👁️ 檢視當時訂單明細
-                        </button>
-                    </div>
-                </div>
-            </div>
-
-            <!-- 3 筆以上或人員統計：數據長條視覺化圖表 -->
-            <div v-else-if="historyViewMode === 'chart'" class="history-charts-wrapper">
-                <div class="box-panel" v-if="historyChartSeries.length > 0">
-                    <h4 class="chart-section-title">📊 訂單金額 / 數量統計</h4>
-                    <div v-for="(bar, idx) in historyChartSeries" :key="idx" class="chart-bar-item">
-                        <div class="chart-bar-label">
-                            <span>{{ bar.label }}</span>
-                            <b>{{ bar.displayValue }}</b>
-                        </div>
-                        <div class="chart-bar-track">
-                            <div
-                                class="chart-bar-fill"
-                                :style="{ width: bar.percent + '%', backgroundColor: bar.color }"
-                            ></div>
+                                👁️ 檢視當時訂單明細
+                            </button>
                         </div>
                     </div>
                 </div>
 
-                <div class="box-panel mt-2" v-if="historyPriceSeries.length > 0">
-                    <h4 class="chart-section-title">💰 歷次售價趨勢</h4>
-                    <div v-for="(pItem, idx) in historyPriceSeries" :key="idx" class="price-trend-row">
-                        <span class="trend-name">{{ pItem.label }}</span>
-                        <span class="trend-values">{{ pItem.pricesText }}</span>
+                <!-- 3 筆以上或人員統計：數據長條視覺化圖表 -->
+                <div v-else-if="historyViewMode === 'chart'" class="history-charts-wrapper">
+                    <div class="box-panel" v-if="historyChartSeries.length > 0">
+                        <h4 class="chart-section-title">📊 訂單金額 / 數量統計</h4>
+                        <div v-for="(bar, idx) in historyChartSeries" :key="idx" class="chart-bar-item">
+                            <div class="chart-bar-label">
+                                <span>{{ bar.label }}</span>
+                                <b>{{ bar.displayValue }}</b>
+                            </div>
+                            <div class="chart-bar-track">
+                                <div
+                                    class="chart-bar-fill"
+                                    :style="{ width: bar.percent + '%', backgroundColor: bar.color }"
+                                ></div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="box-panel mt-2" v-if="historyPriceSeries.length > 0">
+                        <h4 class="chart-section-title">💰 歷次售價趨勢</h4>
+                        <div v-for="(pItem, idx) in historyPriceSeries" :key="idx" class="price-trend-row">
+                            <span class="trend-name">{{ pItem.label }}</span>
+                            <span class="trend-values">{{ pItem.pricesText }}</span>
+                        </div>
                     </div>
                 </div>
-            </div>
 
-            <div v-else class="empty-state">
-                <p>請點擊上方「🔍 條件查詢」篩選品項或人員購買紀錄</p>
-            </div>
+                <div v-else class="empty-state">
+                    <p>請點擊上方「🔍 條件查詢」篩選品項或人員購買紀錄</p>
+                </div>
+            </template>
         </div>
 
         <!-- ==================== MODAL 1: 管理 / 檢視訂單 + 追加訂單 ==================== -->
@@ -268,25 +306,82 @@
                 <!-- 子頁籤 A：訂購明細 -->
                 <template v-if="orderSubTab === 'list'">
                     <div class="summary-banner">
-                        <div class="summary-banner-title">📊 總量統計</div>
+                        <div class="summary-banner-top">
+                            <div class="summary-banner-title">📊 總量統計</div>
+                            <button
+                                type="button"
+                                class="btn-copy-small"
+                                @click="copyOrderSummaryAndList"
+                                :disabled="groupedOrders.length === 0"
+                            >
+                                📋 複製統計與名單
+                            </button>
+                        </div>
+
                         <div class="summary-banner-content">
                             <span v-if="isCurrentItemMultiFlavor" class="summary-flavor-group">
-                                <span v-for="(qty, flv) in overallFlavorTotals" :key="flv" class="summary-flavor-badge">
-                                    {{ flv }}: <b class="summary-q-num">{{ qty }}</b>
+                                <span
+                                    v-for="flvObj in getValidFlavors(currentItemId)"
+                                    :key="flvObj.口味"
+                                    class="summary-flavor-badge"
+                                >
+                                    {{ flvObj.口味 }}:
+                                    <b class="summary-q-num">{{ overallFlavorTotals[flvObj.口味] || 0 }}</b>
+                                    <template v-if="Number(flvObj.限量) > 0">
+                                        <span
+                                            :class="[
+                                                'remain-inline',
+                                                { 'text-danger': Number(flvObj.限量) - (overallFlavorTotals[flvObj.口味] || 0) < 0 }
+                                            ]"
+                                        >
+                                            ({{ formatRemainingText(Number(flvObj.限量) - (overallFlavorTotals[flvObj.口味] || 0)) }})
+                                        </span>
+                                    </template>
                                 </span>
                             </span>
                             <span v-else class="summary-single-group">
                                 總訂購數量: <b class="summary-total-num">{{ overallTotalQty }}</b> 份
+                                <template v-if="getSingleItemLimit(currentItemId) > 0">
+                                    <span
+                                        :class="[
+                                            'remain-inline',
+                                            { 'text-danger': Number(getSingleItemLimit(currentItemId)) - overallTotalQty < 0 }
+                                        ]"
+                                    >
+                                        (限量 {{ getSingleItemLimit(currentItemId) }} / {{ formatRemainingText(Number(getSingleItemLimit(currentItemId)) - overallTotalQty) }})
+                                    </span>
+                                </template>
                             </span>
                         </div>
+                    </div>
+
+                    <!-- 已下單人員快速搜尋框 -->
+                    <div class="order-search-bar" v-if="!orderLoading && groupedOrders.length > 0">
+                        <input
+                            type="text"
+                            v-model.trim="orderNameFilter"
+                            placeholder="🔍 搜尋已下單姓名..."
+                            class="form-input order-search-input"
+                        />
+                        <button
+                            v-if="orderNameFilter"
+                            type="button"
+                            class="btn-clear-filter"
+                            @click="orderNameFilter = ''"
+                        >
+                            ✕
+                        </button>
                     </div>
 
                     <div class="modal-body">
                         <div v-if="orderLoading" class="loading-state"><p>載入訂單資料中...</p></div>
                         <div v-else-if="groupedOrders.length === 0" class="empty-state"><p>該品項查無訂單！</p></div>
+                        <div v-else-if="filteredGroupedOrders.length === 0" class="empty-state">
+                            <p>找不到符合「{{ orderNameFilter }}」的訂單</p>
+                        </div>
 
                         <div v-else class="order-items-list">
-                            <div v-for="(group, index) in groupedOrders" :key="index" class="order-card-row">
+                            <div v-for="(group, index) in filteredGroupedOrders" :key="index" class="order-card-row">
                                 <div class="ord-left">
                                     <div class="ord-name-line">
                                         <span class="ord-name">{{ group.name }}</span>
@@ -323,7 +418,6 @@
                             <span class="total-value">${{ orderTotal.toLocaleString() }}</span>
                         </div>
 
-                        <!-- 管理訂單模式 (upd)：延後訂單、分享訂單 -->
                         <div v-if="orderModalMode === 'upd'" class="footer-action-row">
                             <button class="action-btn btn-warning-solid flex-1" @click="handleOrderStatusAction('stop')">
                                 ⏰ 延後訂單
@@ -333,7 +427,6 @@
                             </button>
                         </div>
 
-                        <!-- 已結單檢視模式 (view)：移除追加訂單 -->
                         <div v-else-if="orderModalMode === 'view' && !isHistorySearchView" class="footer-action-row">
                             <button class="action-btn btn-danger-solid w-100" @click="handleOrderStatusAction('delapd')">
                                 🗑️ 移除追加訂單
@@ -342,7 +435,7 @@
                     </div>
                 </template>
 
-                <!-- 子頁籤 B：追加訂單 (對齊原 #append) -->
+                <!-- 子頁籤 B：追加訂單 -->
                 <template v-else-if="orderSubTab === 'append'">
                     <div class="modal-body form-body">
                         <div class="info-alert-box">
@@ -423,7 +516,6 @@
                 </div>
 
                 <div class="modal-body form-body">
-                    <!-- 1. 品項名稱與新品項/舊品項切換 -->
                     <div class="form-group">
                         <div class="label-with-radios">
                             <label><span class="text-danger">*</span> 品項名稱</label>
@@ -439,7 +531,6 @@
                             </div>
                         </div>
 
-                        <!-- 新品項輸入框 + AI 助手按鈕 -->
                         <div v-if="newItemForm.itemType === 'new'" class="input-with-ai">
                             <input
                                 type="text"
@@ -455,7 +546,6 @@
                             </button>
                         </div>
 
-                        <!-- AI 命名選項產生區 -->
                         <div v-if="newItemForm.itemType === 'new' && aiNameOptions.length > 0" class="ai-options-box">
                             <span
                                 v-for="(opt, idx) in aiNameOptions"
@@ -467,7 +557,6 @@
                             </span>
                         </div>
 
-                        <!-- 舊品項下拉選單 -->
                         <div v-if="newItemForm.itemType === 'old'">
                             <select v-model="newItemForm.selectedOldId" @change="handleSelectOldItem" class="form-select w-100">
                                 <option value="">-- 請選擇歷史品項 --</option>
@@ -478,7 +567,6 @@
                         </div>
                     </div>
 
-                    <!-- 2. 團購期間 (已整合 Flatpickr + .datepickr) -->
                     <div class="form-group">
                         <label>團購期間</label>
                         <div class="form-row">
@@ -505,7 +593,6 @@
                         </div>
                     </div>
 
-                    <!-- 3. 口味選擇切換 -->
                     <div class="form-group">
                         <div class="label-with-radios">
                             <label>口味選擇</label>
@@ -522,7 +609,6 @@
                         </div>
                     </div>
 
-                    <!-- 單口味欄位 -->
                     <div v-if="newItemForm.flavorType === 'single'" class="form-group box-panel">
                         <label><span class="text-danger">*</span> 價格與限量 <span class="hint-text">(※ 0為不限量)</span></label>
                         <div class="form-row">
@@ -535,7 +621,6 @@
                         </div>
                     </div>
 
-                    <!-- 多口味欄位 -->
                     <div v-else class="form-group box-panel">
                         <label><span class="text-danger">*</span> 口味與限量 <span class="hint-text">(※ 0為不限量)</span></label>
                         <div v-for="(flv, index) in newItemForm.flavors" :key="index" class="flavor-input-row">
@@ -560,7 +645,6 @@
                         </button>
                     </div>
 
-                    <!-- 4. 圖片上傳與預覽 -->
                     <div class="form-group">
                         <label>圖片 <span class="hint-text">(最多 3 張，單張限 5MB 內 .jpg/.png)</span></label>
                         <input
@@ -581,7 +665,6 @@
                         </div>
                     </div>
 
-                    <!-- 5. 可折疊「更多選項」與行程設定 -->
                     <div class="more-options-section">
                         <button type="button" class="btn-toggle-more" @click="showMoreOptions = !showMoreOptions">
                             更多選項 <span>{{ showMoreOptions ? '▴' : '▾' }}</span>
@@ -658,7 +741,6 @@
                         <input type="text" :value="editForm.name" disabled class="form-input w-100 input-disabled" />
                     </div>
 
-                    <!-- 團購期間 (editStartDate / editEndDate + .datepickr) -->
                     <div class="form-group">
                         <label>團購期間</label>
                         <div class="form-row">
@@ -687,7 +769,6 @@
                         </div>
                     </div>
 
-                    <!-- 單口味編輯 -->
                     <div v-if="editForm.flavorType === 'single'" class="form-group box-panel">
                         <label><span class="text-danger">*</span> 價格與限量 <span class="hint-text">(※ 0為不限量)</span></label>
                         <div class="form-row">
@@ -700,7 +781,6 @@
                         </div>
                     </div>
 
-                    <!-- 多口味編輯 -->
                     <div v-else class="form-group box-panel">
                         <label><span class="text-danger">*</span> 口味與限量 <span class="hint-text">(※ 0為不限量)</span></label>
                         <div v-for="(flv, index) in editForm.flavors" :key="index" class="flavor-input-row">
@@ -725,7 +805,6 @@
                         </button>
                     </div>
 
-                    <!-- 圖片維護 -->
                     <div class="form-group">
                         <label>圖片 <span class="hint-text">(最多 3 張 .jpg/.png)</span></label>
                         <input
@@ -838,7 +917,6 @@
 
                     <div class="form-group box-panel">
                         <div v-for="(agRow, idx) in agentForm.rows" :key="idx" class="flavor-input-row">
-                            <!-- 新名字輸入框 -->
                             <input
                                 v-if="agentForm.nameType === 'new'"
                                 type="text"
@@ -846,7 +924,6 @@
                                 placeholder="姓名"
                                 class="form-input flex-2"
                             />
-                            <!-- 舊名字下拉選單 -->
                             <select
                                 v-else
                                 v-model="agRow.name"
@@ -858,7 +935,6 @@
                                 </option>
                             </select>
 
-                            <!-- 多口味下拉選單 -->
                             <select
                                 v-if="agentForm.isMultiFlavor"
                                 v-model="agRow.flavor"
@@ -934,12 +1010,11 @@
                     </button>
                 </div>
 
-                <!-- 查詢頁籤 A：依品項查詢 -->
                 <div v-if="searchSubTab === 'prd'" class="modal-body form-body">
                     <div class="form-group">
                         <div class="label-with-radios">
                             <label><span class="text-danger">*</span> 選擇品項</label>
-                            <button type="button" class="btn-copy-small" @click="reloadHistoryCache">
+                            <button type="button" class="btn-copy-small" @click="reloadHistoryCache" :disabled="historyLoading">
                                 🔄 同步資料
                             </button>
                         </div>
@@ -951,7 +1026,6 @@
                         </select>
                     </div>
 
-                    <!-- 當該品項開團 >= 3 次才顯示日期範圍 (最多 6 個月) -->
                     <div v-if="selectedSearchPrdCount >= 3" class="form-group">
                         <label><span class="text-danger">*</span> 日期範圍 <span class="hint-text">(最多 6 個月)</span></label>
                         <div class="form-row">
@@ -977,18 +1051,17 @@
                     </div>
 
                     <div class="modal-footer px-0">
-                        <button class="btn-submit-item" @click="executeOrderSearch">
-                            🔍 查詢品項紀錄
+                        <button class="btn-submit-item" @click="executeOrderSearch" :disabled="historyLoading">
+                            {{ historyLoading ? '查詢中...' : '🔍 查詢品項紀錄' }}
                         </button>
                     </div>
                 </div>
 
-                <!-- 查詢頁籤 B：依人員查詢 -->
                 <div v-else class="modal-body form-body">
                     <div class="form-group">
                         <div class="label-with-radios">
                             <label><span class="text-danger">*</span> 選擇人員</label>
-                            <button type="button" class="btn-copy-small" @click="reloadHistoryCache">
+                            <button type="button" class="btn-copy-small" @click="reloadHistoryCache" :disabled="historyLoading">
                                 🔄 同步資料
                             </button>
                         </div>
@@ -1025,8 +1098,8 @@
                     </div>
 
                     <div class="modal-footer px-0">
-                        <button class="btn-submit-item" @click="executeEmpSearch">
-                            🔍 查詢人員購買紀錄
+                        <button class="btn-submit-item" @click="executeEmpSearch" :disabled="historyLoading">
+                            {{ historyLoading ? '查詢中...' : '🔍 查詢人員購買紀錄' }}
                         </button>
                     </div>
                 </div>
@@ -1036,15 +1109,25 @@
 </template>
 
 <script setup>
-import { ref, computed, reactive, onMounted, onUnmounted, nextTick } from 'vue'
+import { ref, computed, reactive, watch, onMounted, onUnmounted, nextTick } from 'vue'
 import flatpickr from 'flatpickr'
 import 'flatpickr/dist/flatpickr.min.css'
 import { MandarinTraditional } from 'flatpickr/dist/l10n/zh-tw.js'
 import { fetchItemsData, postGasData } from '../services/api.js'
 
+const props = defineProps({
+    userId: {
+        type: String,
+        default: ''
+    }
+})
+
+const CLOUDINARY_BASE_URL = 'https://res.cloudinary.com/dwavqm0sh/image/upload/'
+
 const items = ref([])
 const flavors = ref([])
 const loading = ref(false)
+const historyLoading = ref(false)
 const currentPage = ref(1)
 const pageSize = 5
 const activeDropdownId = ref(null)
@@ -1122,6 +1205,11 @@ const getInitialUserId = () => {
     const urlParams = new URLSearchParams(window.location.search)
     const paramUserId = urlParams.get('userId')
 
+    if (props.userId) {
+        localStorage.setItem('cached_userId', props.userId)
+        return props.userId
+    }
+
     if (paramUserId) {
         localStorage.setItem('cached_userId', paramUserId)
         return paramUserId
@@ -1132,6 +1220,17 @@ const getInitialUserId = () => {
 
 const userId = ref(getInitialUserId())
 
+watch(
+    () => props.userId,
+    (newVal) => {
+        if (newVal) {
+            userId.value = newVal
+            localStorage.setItem('cached_userId', newVal)
+        }
+    },
+    { immediate: true }
+)
+
 // ==================== 載入品項列表 ====================
 const loadData = async () => {
     loading.value = true
@@ -1140,7 +1239,6 @@ const loadData = async () => {
         const rawItems = result.items || []
         flavors.value = result.flavors || []
 
-        // 對齊 manager.html：依 ID 倒序並過濾有效狀態
         items.value = [...rawItems]
             .sort((a, b) => Number(b.ID) - Number(a.ID))
             .filter(prd => Number(prd.訂單金額總計) > 0 || prd.狀態 === '開啟中' || prd.狀態 === '延後中')
@@ -1154,22 +1252,114 @@ const loadData = async () => {
     }
 }
 
+// ==================== 圖片與限量 helper ====================
+const getItemFlavorRecords = (itemId) => {
+    return flavors.value.filter(f => String(f.品項ID || f.ID) === String(itemId))
+}
+
+const parseRawImageString = (rawImgStr) => {
+    if (!rawImgStr || String(rawImgStr).trim() === '') return []
+    return String(rawImgStr)
+        .split('|')
+        .map(s => s.trim())
+        .filter(Boolean)
+        .map(filename => (filename.startsWith('http') ? filename : `${CLOUDINARY_BASE_URL}${filename}`))
+}
+
+const getRawImageByItemId = (itemId) => {
+    const recs = getItemFlavorRecords(itemId)
+    return recs.map(r => r.圖片).find(img => img && String(img).trim() !== '') || ''
+}
+
+// 取得品項圖片網址：若指定 itemId 的圖片欄位為空，則比對相同品項名稱的其他紀錄帶入
+const getItemImageUrls = (itemId, itemName = '') => {
+    const directRaw = getRawImageByItemId(itemId)
+    if (directRaw) {
+        return parseRawImageString(directRaw)
+    }
+
+    const targetName =
+        itemName || items.value.find(i => String(i.ID) === String(itemId))?.名稱 || ''
+    if (!targetName) return []
+
+    const sameNameItems = items.value.filter(
+        i => i.名稱 === targetName && String(i.ID) !== String(itemId)
+    )
+    for (const other of sameNameItems) {
+        const fallbackRaw = getRawImageByItemId(other.ID)
+        if (fallbackRaw) {
+            return parseRawImageString(fallbackRaw)
+        }
+    }
+
+    return []
+}
+
+// 剩餘數量格式化：負數顯示「多 X」、0 顯示「完售」、正數顯示「剩 X」
+const formatRemainingText = (remain) => {
+    const num = Number(remain) || 0
+    if (num < 0) return `多 ${Math.abs(num)}`
+    if (num === 0) return '完售'
+    return `剩 ${num}`
+}
+
 const getValidFlavors = (itemId) => {
-    return flavors.value.filter(f => {
-        const matchId = String(f.品項ID || f.ID) === String(itemId)
-        const hasFlavorName = f.口味 && String(f.口味).trim() !== ''
-        return matchId && hasFlavorName
-    })
+    return getItemFlavorRecords(itemId).filter(f => f.口味 && String(f.口味).trim() !== '')
 }
 
 const getSingleItemLimit = (itemId) => {
     const item = items.value.find(i => String(i.ID) === String(itemId))
-    if (item && item.限量) return item.限量
+    if (item && Number(item.限量) > 0) return Number(item.限量)
 
-    const flavorRecord = flavors.value.find(f => String(f.品項ID || f.ID) === String(itemId))
-    if (flavorRecord && flavorRecord.限量 && Number(flavorRecord.限量) > 0) return flavorRecord.限量
+    const flavorRecord = getItemFlavorRecords(itemId)[0]
+    if (flavorRecord && Number(flavorRecord.限量) > 0) return Number(flavorRecord.限量)
 
-    return null
+    return 0
+}
+
+// 外面列表單口味算式：
+// 有追加情況：限量 - (追加 / 售價)
+// 沒有追加情況：限量 - (總計 / 售價)
+const getSingleRemaining = (row) => {
+    const limit = getSingleItemLimit(row.ID)
+    if (!limit) return 0
+
+    const unitPrice = Number(row.售價)
+    if (!unitPrice || unitPrice <= 0) return limit
+
+    const hasAppend = Number(row.追加金額總計) > 0
+    const baseAmount = hasAppend
+        ? Number(row.追加金額總計) || 0
+        : Number(row.訂單金額總計) || 0
+
+    const estimatedQty = Math.round(baseAmount / unitPrice)
+    return limit - estimatedQty
+}
+
+// 外面列表多口味算式：
+// 有追加情況：依「追加金額總計」反推該口味份數後算 限量 - 份數
+// 沒有追加情況：依「訂單金額總計」反推該口味份數後算 限量 - 份數
+const getFlavorRemaining = (row, flv) => {
+    const limit = Number(flv.限量) || 0
+    if (!limit) return 0
+
+    const unitPrice = Number(flv.價格)
+    if (!unitPrice || unitPrice <= 0) return limit
+
+    const validFlvs = getValidFlavors(row.ID)
+    if (validFlvs.length === 0) return limit
+
+    const sumOfAllFlavorPrices = validFlvs.reduce((acc, cur) => acc + (Number(cur.價格) || 0), 0)
+    if (sumOfAllFlavorPrices <= 0) return limit
+
+    const hasAppend = Number(row.追加金額總計) > 0
+    const baseAmount = hasAppend
+        ? Number(row.追加金額總計) || 0
+        : Number(row.訂單金額總計) || 0
+
+    const allocatedAmount = baseAmount * (unitPrice / sumOfAllFlavorPrices)
+    const estimatedQty = Math.round(allocatedAmount / unitPrice)
+    return limit - estimatedQty
 }
 
 const hasValidDeadline = (row) => {
@@ -1228,6 +1418,7 @@ const currentOrderTitle = ref('')
 const currentItemId = ref(null)
 const rawOrderList = ref([])
 const orderTotal = ref(0)
+const orderNameFilter = ref('')
 const appendRows = ref([{ name: '', flavor: '', qty: '' }])
 
 const isCurrentItemMultiFlavor = computed(() => {
@@ -1273,7 +1464,6 @@ const groupedOrders = computed(() => {
     const map = {}
 
     if (orderModalMode.value === 'upd') {
-        // upd API 回傳結構: [{ name, orders: [{ taste, count, total }] }]
         rawOrderList.value.forEach(item => {
             const name = item.name || '未具名'
             if (!map[name]) {
@@ -1297,7 +1487,6 @@ const groupedOrders = computed(() => {
             })
         })
     } else {
-        // view API 回傳結構: [{ 姓名, 口味, 數量, 金額 }]
         rawOrderList.value.forEach(ord => {
             const name = ord.名稱 || ord.姓名 || ord.使用者 || '未具名'
             const flavor = ord.口味 || ''
@@ -1326,6 +1515,47 @@ const groupedOrders = computed(() => {
 
     return Object.values(map)
 })
+
+const filteredGroupedOrders = computed(() => {
+    const kw = orderNameFilter.value.trim().toLowerCase()
+    if (!kw) return groupedOrders.value
+    return groupedOrders.value.filter(g => String(g.name).toLowerCase().includes(kw))
+})
+
+const copyOrderSummaryAndList = async () => {
+    const lines = [`【${currentOrderTitle.value}】訂單統計與名單`]
+
+    if (isCurrentItemMultiFlavor.value) {
+        const flvSummary = Object.entries(overallFlavorTotals.value)
+            .map(([flv, q]) => `${flv} x${q}`)
+            .join('、')
+        lines.push(`口味統計：${flvSummary || '無'}（共 ${overallTotalQty.value} 份）`)
+    } else {
+        lines.push(`總訂購數量：${overallTotalQty.value} 份`)
+    }
+
+    lines.push('--------------------')
+    groupedOrders.value.forEach(g => {
+        if (g.type === 'multi') {
+            const detail = Object.entries(g.flavorMap)
+                .map(([flv, q]) => `${flv}x${q}`)
+                .join('、')
+            lines.push(`• ${g.name}：${detail}（$${Number(g.totalAmount || 0).toLocaleString()}）`)
+        } else {
+            lines.push(`• ${g.name}：x${g.totalQty}（$${Number(g.totalAmount || 0).toLocaleString()}）`)
+        }
+    })
+    lines.push('--------------------')
+    lines.push(`總金額：$${Number(orderTotal.value || 0).toLocaleString()}`)
+
+    const output = lines.join('\n')
+    try {
+        await navigator.clipboard.writeText(output)
+        alert('已複製統計與下單名單！')
+    } catch {
+        alert(`複製失敗，請手動複製：\n\n${output}`)
+    }
+}
 
 const switchToAppendTab = () => {
     appendRows.value = [{ name: '', flavor: '', qty: '' }]
@@ -1450,19 +1680,20 @@ const handleDeleteUserOrder = async (userName) => {
 
 const closeOrderModal = () => {
     showOrderModal.value = false
+    orderNameFilter.value = ''
 }
 
 // ==================== 卡片操作入口分流 ====================
 const handleAction = async (type, row) => {
     activeDropdownId.value = null
 
-    // 1. 檢視訂單 (view) 或 管理訂單 (upd)
     if (type === 'view' || type === 'upd') {
         orderModalMode.value = type
         orderSubTab.value = 'list'
         isHistorySearchView.value = row.search === 'Y'
         currentOrderTitle.value = row.名稱
         currentItemId.value = row.ID
+        orderNameFilter.value = ''
         showOrderModal.value = true
         orderLoading.value = true
         rawOrderList.value = []
@@ -1494,25 +1725,21 @@ const handleAction = async (type, row) => {
         return
     }
 
-    // 2. 開啟團購文案 (open -> cartModal)
     if (type === 'open') {
         openCartModal(row)
         return
     }
 
-    // 3. 編輯訂單 (edit -> editModal)
     if (type === 'edit') {
         openEditModal(row)
         return
     }
 
-    // 4. 代購訂單 (agent -> AgentModal)
     if (type === 'agent') {
         openAgentModal(row)
         return
     }
 
-    // 5. 結算 (chkout) / 刪除 (delete)
     const title = type === 'chkout' ? '結單' : type === 'delete' ? '刪除' : ''
     if (!title) return
     if (!confirm(`你確定要${title}品項「${row.名稱}」嗎？此操作無法復原！`)) return
@@ -1539,7 +1766,7 @@ const handleAction = async (type, row) => {
     }
 }
 
-// ==================== 圖片上傳處理 (相容 GAS payload) ====================
+// ==================== 圖片上傳處理 ====================
 const handleImageUpload = (event, target) => {
     const files = Array.from(event.target.files || [])
     const targetList = target === 'add' ? newItemForm.images : editForm.images
@@ -1629,12 +1856,16 @@ const closeAddItemModal = () => {
 const handleItemTypeChange = () => {
     newItemForm.name = ''
     newItemForm.selectedOldId = ''
+    newItemForm.images = []
     aiNameOptions.value = []
 }
 
 const handleSelectOldItem = () => {
     const oldId = newItemForm.selectedOldId
-    if (!oldId) return
+    if (!oldId) {
+        newItemForm.images = []
+        return
+    }
 
     const targetItem = items.value.find(i => String(i.ID) === String(oldId))
     if (!targetItem) return
@@ -1654,6 +1885,17 @@ const handleSelectOldItem = () => {
         newItemForm.price = targetItem.售價 || ''
         newItemForm.singleLimit = getSingleItemLimit(oldId) || 0
     }
+
+    const imgUrls = getItemImageUrls(oldId, targetItem.名稱)
+    newItemForm.images = imgUrls.slice(0, 3).map(url => {
+        const filename = url.replace(CLOUDINARY_BASE_URL, '')
+        return {
+            filename,
+            mimeType: 'uploaded',
+            data: '',
+            previewUrl: url
+        }
+    })
 }
 
 const showAiDescription = () => {
@@ -1821,24 +2063,16 @@ const openEditModal = async (row) => {
         editForm.editNum = getSingleItemLimit(row.ID) || 0
     }
 
-    // 載入既有圖片 (Cloudinary)
-    const rawFlvRecord = flavors.value.find(f => String(f.品項ID || f.ID) === String(row.ID))
-    const imgStr = rawFlvRecord?.圖片 || ''
-    const imgBaseUrl = 'https://res.cloudinary.com/dwavqm0sh/image/upload/'
-
-    if (imgStr) {
-        editForm.images = imgStr
-            .split('|')
-            .filter(Boolean)
-            .map(filename => ({
-                filename,
-                mimeType: 'uploaded',
-                data: '',
-                previewUrl: imgBaseUrl + filename
-            }))
-    } else {
-        editForm.images = []
-    }
+    const imgUrls = getItemImageUrls(row.ID, row.名稱)
+    editForm.images = imgUrls.map(url => {
+        const filename = url.replace(CLOUDINARY_BASE_URL, '')
+        return {
+            filename,
+            mimeType: 'uploaded',
+            data: '',
+            previewUrl: url
+        }
+    })
 
     showEditModal.value = true
 
@@ -2154,7 +2388,7 @@ const ensureHistoryCacheLoaded = async () => {
 
     if (prd.length === 0 && flv.length === 0 && emp.length === 0) {
         try {
-            loading.value = true
+            historyLoading.value = true
             const res = await postGasData({ type: 'search', userId: userId.value })
             if (res && res[0] && res[0].status === 'success') {
                 const pData = res[0].data || {}
@@ -2170,7 +2404,7 @@ const ensureHistoryCacheLoaded = async () => {
             console.error(err)
             alert('歷史資料載入失敗')
         } finally {
-            loading.value = false
+            historyLoading.value = false
         }
     }
 
@@ -2234,35 +2468,34 @@ const executeOrderSearch = async () => {
         return
     }
 
-    const filtered = cachedSearchPrds.value.filter(prd => {
-        if (prd.名稱 !== searchForm.selectedPrd) return false
-        if (selectedSearchPrdCount.value >= 3 && prd.開啟時間) {
-            const d = String(prd.開啟時間).substring(0, 10).replace(/-/g, '/')
-            return d >= searchForm.ordStartDate && d <= searchForm.ordEndDate
-        }
-        return true
-    })
-
-    historyResultTitle.value = `品項查詢：${searchForm.selectedPrd}`
-    historyResultSubtitle.value =
-        selectedSearchPrdCount.value >= 3
-            ? `${searchForm.ordStartDate} ~ ${searchForm.ordEndDate}`
-            : `共 ${filtered.length} 筆開團紀錄`
-
-    if (filtered.length < 3) {
-        historyTableRows.value = filtered
-        historyViewMode.value = 'table'
-        showSearchModal.value = false
-        return
-    }
-
-    // 3 筆以上：呼叫 chart API 呈現金額與價格趨勢
-    const sheetNames = filtered.map(prd => `${prd.ID}-${prd.名稱}`)
-    const ids = filtered.map(prd => prd.ID)
-    const hasMulti = filtered.some(i => i.售價 === '---')
-
+    historyLoading.value = true
     try {
-        loading.value = true
+        const filtered = cachedSearchPrds.value.filter(prd => {
+            if (prd.名稱 !== searchForm.selectedPrd) return false
+            if (selectedSearchPrdCount.value >= 3 && prd.開啟時間) {
+                const d = String(prd.開啟時間).substring(0, 10).replace(/-/g, '/')
+                return d >= searchForm.ordStartDate && d <= searchForm.ordEndDate
+            }
+            return true
+        })
+
+        historyResultTitle.value = `品項查詢：${searchForm.selectedPrd}`
+        historyResultSubtitle.value =
+            selectedSearchPrdCount.value >= 3
+                ? `${searchForm.ordStartDate} ~ ${searchForm.ordEndDate}`
+                : `共 ${filtered.length} 筆開團紀錄`
+
+        if (filtered.length < 3) {
+            historyTableRows.value = filtered
+            historyViewMode.value = 'table'
+            showSearchModal.value = false
+            return
+        }
+
+        const sheetNames = filtered.map(prd => `${prd.ID}-${prd.名稱}`)
+        const ids = filtered.map(prd => prd.ID)
+        const hasMulti = filtered.some(i => i.售價 === '---')
+
         const res = await postGasData({
             type: 'chart',
             userId: userId.value,
@@ -2310,7 +2543,7 @@ const executeOrderSearch = async () => {
         console.error(err)
         alert('查詢統計異常')
     } finally {
-        loading.value = false
+        historyLoading.value = false
     }
 }
 
@@ -2320,16 +2553,16 @@ const executeEmpSearch = async () => {
         return
     }
 
-    const rangePrds = cachedSearchPrds.value.filter(prd => {
-        if (!prd.開啟時間) return false
-        const d = String(prd.開啟時間).substring(0, 10).replace(/-/g, '/')
-        return d >= searchForm.prdStartDate && d <= searchForm.prdEndDate
-    })
-
-    const sheetNames = rangePrds.map(prd => `${prd.ID}-${prd.名稱}`)
-
+    historyLoading.value = true
     try {
-        loading.value = true
+        const rangePrds = cachedSearchPrds.value.filter(prd => {
+            if (!prd.開啟時間) return false
+            const d = String(prd.開啟時間).substring(0, 10).replace(/-/g, '/')
+            return d >= searchForm.prdStartDate && d <= searchForm.prdEndDate
+        })
+
+        const sheetNames = rangePrds.map(prd => `${prd.ID}-${prd.名稱}`)
+
         const res = await postGasData({
             type: 'chart',
             userId: userId.value,
@@ -2361,7 +2594,7 @@ const executeEmpSearch = async () => {
         console.error(err)
         alert('查詢人員購買紀錄異常')
     } finally {
-        loading.value = false
+        historyLoading.value = false
     }
 }
 
@@ -2445,6 +2678,11 @@ onUnmounted(() => {
     background: #15803d;
 }
 
+.btn-primary-action:disabled {
+    opacity: 0.55;
+    cursor: not-allowed;
+}
+
 .btn-refresh {
     background: #ffffff;
     border: 1px solid #cbd5e1;
@@ -2453,6 +2691,45 @@ onUnmounted(() => {
     font-size: 0.8rem;
     color: #334155;
     cursor: pointer;
+}
+
+.btn-refresh:disabled {
+    opacity: 0.55;
+    cursor: not-allowed;
+}
+
+/* 歷史查詢載入中動畫 */
+.history-loading-box {
+    background: #ffffff;
+    border: 1px solid #e2e8f0;
+    border-radius: 10px;
+    padding: 32px 16px;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 10px;
+    margin-top: 6px;
+}
+
+.spinner-ring {
+    width: 32px;
+    height: 32px;
+    border: 3px solid #e2e8f0;
+    border-top-color: #16a34a;
+    border-radius: 50%;
+    animation: spinRing 0.8s linear infinite;
+}
+
+.history-loading-text {
+    margin: 0;
+    font-size: 0.88rem;
+    font-weight: 600;
+    color: #475569;
+}
+
+@keyframes spinRing {
+    to { transform: rotate(360deg); }
 }
 
 .card-list {
@@ -2476,7 +2753,11 @@ onUnmounted(() => {
     margin-bottom: 3px;
 }
 
-.card-line-title {
+.card-line-title-row {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 8px;
     margin-bottom: 4px;
 }
 
@@ -2487,6 +2768,22 @@ onUnmounted(() => {
     font-weight: 700;
     word-break: break-all;
     line-height: 1.25;
+}
+
+/* 卡片右側緊湊縮圖列 */
+.card-thumb-strip {
+    display: flex;
+    gap: 4px;
+    flex-shrink: 0;
+}
+
+.card-mini-thumb {
+    width: 38px;
+    height: 38px;
+    border-radius: 6px;
+    object-fit: cover;
+    border: 1px solid #e2e8f0;
+    background: #f1f5f9;
 }
 
 .amount-display {
@@ -2564,6 +2861,24 @@ onUnmounted(() => {
     padding: 1px 5px;
     border-radius: 4px;
     font-weight: 500;
+}
+
+.limit-badge.limit-over {
+    background: #fee2e2;
+    color: #dc2626;
+    font-weight: 700;
+}
+
+.limit-badge.limit-soldout {
+    background: #e2e8f0;
+    color: #475569;
+    font-weight: 700;
+}
+
+.remain-inline {
+    font-size: 0.8rem;
+    color: #15803d;
+    font-weight: 600;
 }
 
 .card-line-details {
@@ -2775,7 +3090,6 @@ onUnmounted(() => {
     justify-content: center;
 }
 
-/* Modal 內部子分頁 */
 .sub-tabs-bar {
     display: flex;
     border-bottom: 1px solid #e2e8f0;
@@ -2808,6 +3122,12 @@ onUnmounted(() => {
     display: flex;
     flex-direction: column;
     gap: 6px;
+}
+
+.summary-banner-top {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
 }
 
 .summary-banner-title {
@@ -2845,13 +3165,35 @@ onUnmounted(() => {
     font-weight: 800;
 }
 
+/* 訂單姓名快速搜尋列 */
+.order-search-bar {
+    display: flex;
+    gap: 6px;
+    padding: 8px 16px 0 16px;
+}
+
+.order-search-input {
+    flex: 1;
+    padding: 6px 10px;
+    font-size: 0.85rem;
+}
+
+.btn-clear-filter {
+    background: #e2e8f0;
+    color: #334155;
+    border: none;
+    border-radius: 8px;
+    padding: 0 10px;
+    font-size: 0.82rem;
+    cursor: pointer;
+}
+
 .modal-body {
-    padding: 14px 16px;
+    padding: 12px 16px 14px 16px;
     overflow-y: auto;
     max-height: 66vh;
 }
 
-/* 表單樣式 */
 .form-body {
     display: flex;
     flex-direction: column;
@@ -3016,6 +3358,11 @@ onUnmounted(() => {
     font-size: 0.75rem;
     color: #334155;
     cursor: pointer;
+}
+
+.btn-copy-small:disabled {
+    opacity: 0.55;
+    cursor: not-allowed;
 }
 
 .w-100 { width: 100%; box-sizing: border-box; }
@@ -3268,6 +3615,11 @@ onUnmounted(() => {
 
 .btn-submit-item:hover {
     background: #15803d;
+}
+
+.btn-submit-item:disabled {
+    opacity: 0.6;
+    cursor: not-allowed;
 }
 
 .total-label {

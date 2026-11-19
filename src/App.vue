@@ -11,9 +11,9 @@
             <span class="welcome-text">歡迎, <b>{{ userName }}</b></span>
         </header>
 
-        <!-- 主畫面元件 -->
+        <!-- 主畫面元件：等身分準備完成後再掛載並傳入 userId -->
         <main class="app-content">
-            <ItemTable />
+            <ItemTable v-if="liffReady" :user-id="userId" />
         </main>
     </div>
 </template>
@@ -24,6 +24,8 @@ import ItemTable from './components/ItemTable.vue'
 
 const globalMask = ref(false)
 const userName = ref('')
+const userId = ref('')
+const liffReady = ref(false)
 
 // 檢查 LocalStorage 快取的驗證函式 (對應您原本的邏輯)
 const isUserAuthenticated = (uid) => {
@@ -52,9 +54,16 @@ onMounted(async () => {
     try {
         globalMask.value = true
 
+        // 先檢查網址參數或 cached_userId 作為備援
+        const urlParams = new URLSearchParams(window.location.search)
+        const fallbackUserId =
+            urlParams.get('userId') ||
+            localStorage.getItem('cached_userId') ||
+            ''
+
         // 1. 初始化 LIFF (請替換為您的 LIFF ID)
-        if (window.liff && !isLocalhost() ) {
-            await window.liff.init({ liffId: "2007457926-6GlfMVC3" })
+        if (window.liff && !isLocalhost()) {
+            await window.liff.init({ liffId: '2007457926-6GlfMVC3' })
 
             if (!window.liff.isLoggedIn()) {
                 window.liff.login()
@@ -63,26 +72,41 @@ onMounted(async () => {
 
             // 2. 取得使用者 Profile 與 Token
             const profile = await window.liff.getProfile()
-            
-            // 3. 掛載到全域 window 變數，方便所有元件直接讀取
+
+            // 3. 同步更新響應式狀態、localStorage 與全域 window 變數
+            userId.value = profile.userId
+            userName.value = profile.displayName
             window.userId = profile.userId
             window.userName = profile.displayName
-            userName.value = profile.displayName
+            localStorage.setItem('cached_userId', profile.userId)
 
             // 4. LocalStorage 快取驗證與資料載入
             if (!isUserAuthenticated(profile.userId)) {
                 await authUser(profile.userId)
             }
         } else {
-            console.warn('LIFF SDK 未載入，使用預設測試身分')
-            window.userId = 'TEST'
-            window.userName = '測試管理員'
+            console.warn('LIFF SDK 未載入或處於本機開發環境，使用測試/快取身分')
+            const devUserId = fallbackUserId || 'TEST'
+            userId.value = devUserId
             userName.value = '測試管理員'
+            window.userId = devUserId
+            window.userName = '測試管理員'
+            localStorage.setItem('cached_userId', devUserId)
         }
     } catch (err) {
         console.error('LIFF 初始化失敗:', err)
+        const urlParams = new URLSearchParams(window.location.search)
+        const fallbackUserId =
+            urlParams.get('userId') ||
+            localStorage.getItem('cached_userId') ||
+            ''
+        if (fallbackUserId) {
+            userId.value = fallbackUserId
+            window.userId = fallbackUserId
+        }
     } finally {
         globalMask.value = false
+        liffReady.value = true
     }
 })
 </script>
