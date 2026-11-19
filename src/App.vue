@@ -39,12 +39,21 @@ const authUser = async (uid) => {
     localStorage.setItem(`auth_${uid}`, new Date().getTime().toString())
 }
 
+const isLocalhost = () => {
+    const hostname = window.location.hostname
+    return (
+        hostname === 'localhost' ||
+        hostname === '127.0.0.1' ||
+        hostname === '[::1]'
+    )
+}
+
 onMounted(async () => {
     try {
         globalMask.value = true
 
         // 1. 初始化 LIFF (請替換為您的 LIFF ID)
-        if (window.liff) {
+        if (window.liff && !isLocalhost() ) {
             await window.liff.init({ liffId: "2007457926-6GlfMVC3" })
 
             if (!window.liff.isLoggedIn()) {
@@ -66,7 +75,7 @@ onMounted(async () => {
             }
         } else {
             console.warn('LIFF SDK 未載入，使用預設測試身分')
-            window.userId = 'TEST_USER_ID'
+            window.userId = 'TEST'
             window.userName = '測試管理員'
             userName.value = '測試管理員'
         }

@@ -1,189 +1,419 @@
 <template>
     <div class="modern-dashboard">
-        <!-- 頂部操作列：新增團購品項與重新整理 -->
-        <div class="dashboard-top-bar">
-            <button class="btn-primary-action" @click="openAddItemModal">
-                ＋ 新增團購項目
+        <!-- 頂部主分頁切換：品項列表 / 歷史訂單 -->
+        <div class="main-nav-tabs">
+            <button
+                :class="['main-tab-btn', { active: activeMainTab === 'items' }]"
+                @click="activeMainTab = 'items'"
+            >
+                品項列表
             </button>
-            <button class="btn-refresh" @click="loadData" :disabled="loading">
-                {{ loading ? '更新中...' : '重新整理' }}
+            <button
+                :class="['main-tab-btn', { active: activeMainTab === 'history' }]"
+                @click="switchToHistoryTab"
+            >
+                歷史訂單
             </button>
         </div>
 
-        <!-- 載入中狀態 -->
-        <div v-if="loading && items.length === 0" class="loading-state">
-            <p>正在載入資料...</p>
-        </div>
-
-        <!-- 緊湊卡片列表 (固定 5 筆一頁) -->
-        <div v-else class="card-list">
-            <div v-if="paginatedItems.length === 0" class="empty-state">
-                <p>目前沒有符合條件的品項</p>
+        <!-- ==================== TAB 1: 品項列表 ==================== -->
+        <div v-show="activeMainTab === 'items'">
+            <!-- 頂部操作列：新增團購品項與重新整理 -->
+            <div class="dashboard-top-bar">
+                <button class="btn-primary-action" @click="openAddItemModal">
+                    ＋ 新增團購項目
+                </button>
+                <button class="btn-refresh" @click="loadData" :disabled="loading">
+                    {{ loading ? '更新中...' : '重新整理' }}
+                </button>
             </div>
 
-            <div v-for="row in paginatedItems" :key="row.ID" class="item-card-compact">
-                <!-- 第一行：左側狀態，右側金額總計/追加金額 -->
-                <div class="card-line-top">
-                    <span :class="['status-pill', getStatusClass(row.狀態)]">
-                        {{ row.狀態 }}
-                    </span>
-                    
-                    <div class="amount-display">
-                        <span v-if="Number(row.追加金額總計) > 0" class="addition-highlight" title="追加金額總計">
-                            追加: ${{ Number(row.追加金額總計).toLocaleString() }}
-                        </span>
-                        <span v-if="Number(row.訂單金額總計) > 0" class="total-highlight" title="訂單金額總計">
-                            總計: ${{ Number(row.訂單金額總計).toLocaleString() }}
-                        </span>
-                    </div>
+            <!-- 載入中狀態 -->
+            <div v-if="loading && items.length === 0" class="loading-state">
+                <p>正在載入資料...</p>
+            </div>
+
+            <!-- 緊湊卡片列表 (固定 5 筆一頁) -->
+            <div v-else class="card-list">
+                <div v-if="paginatedItems.length === 0" class="empty-state">
+                    <p>目前沒有符合條件的品項</p>
                 </div>
 
-                <!-- 第二行：品項名稱獨佔一行 -->
-                <div class="card-line-title">
-                    <h3 class="item-title">{{ row.名稱 }}</h3>
-                </div>
-
-                <!-- 第三行：單一口味與多口味的智慧判斷 -->
-                <div class="card-line-info">
-                    <!-- 單一口味 -->
-                    <div class="single-item-info" v-if="getValidFlavors(row.ID).length === 0">
-                        <span class="price-single" v-if="row.售價">
-                            售價: ${{ row.售價 }}
+                <div v-for="row in paginatedItems" :key="row.ID" class="item-card-compact">
+                    <!-- 第一行：左側狀態，右側金額總計/追加金額 -->
+                    <div class="card-line-top">
+                        <span :class="['status-pill', getStatusClass(row.狀態)]">
+                            {{ row.狀態 }}
                         </span>
-                        <span v-if="getSingleItemLimit(row.ID)" class="limit-badge">
-                            限量: {{ getSingleItemLimit(row.ID) }}
-                        </span>
-                        <span v-if="row.限時開始 || row.限時結束" class="time-badge">
-                            限時: {{ row.限時開始 }} ~ {{ row.限時結束 }}
-                        </span>
-                    </div>
 
-                    <!-- 多口味 -->
-                    <div class="flavor-inline-list" v-else>
-                        <span class="flavor-label">口味：</span>
-                        <span 
-                            v-for="flv in getValidFlavors(row.ID)" 
-                            :key="flv.ID || flv.口味" 
-                            class="flavor-mini-tag"
-                        >
-                            {{ flv.口味 }} <b class="text-emerald">${{ flv.價格 }}</b>
-                            <span v-if="flv.限量" class="limit-badge">限量: {{ flv.限量 }}</span>
-                        </span>
-                    </div>
-                </div>
-
-                <!-- 額外備註顯示 -->
-                <div class="card-line-details" v-if="row.備註">
-                    <span class="remark-text">備註: {{ row.備註 }}</span>
-                </div>
-
-                <!-- 第四行：操作按鈕區 -->
-                <div class="card-line-footer">
-                    <template v-if="row.狀態 === '已結單'">
-                        <button class="action-btn btn-view-full" @click="handleAction('view', row)">
-                            👁️ 檢視訂單
-                        </button>
-                    </template>
-
-                    <template v-else-if="row.狀態 === '開啟中'">
-                        <button class="action-btn btn-primary-soft" @click="handleAction('open', row)">
-                            開啟
-                        </button>
-                        <button class="action-btn btn-success-soft" @click="handleAction('upd', row)">
-                            管理
-                        </button>
-                        
-                        <div class="dropdown-wrapper">
-                            <button class="action-btn btn-more" @click.stop="toggleDropdown(row.ID)">
-                                更多
-                            </button>
-                            <ul v-if="activeDropdownId === row.ID" class="dropdown-menu-modern">
-                                <li><a href="#" @click.prevent="handleAction('edit', row)">編輯訂單</a></li>
-                                <li><a href="#" @click.prevent="handleAction('chkout', row)">結算訂單</a></li>
-                                <li><a href="#" @click.prevent="handleAction('agent', row)">代購訂單</a></li>
-                                <li><a href="#" class="text-danger" @click.prevent="handleAction('delete', row)">刪除訂單</a></li>
-                            </ul>
+                        <div class="amount-display">
+                            <span v-if="Number(row.追加金額總計) > 0" class="addition-highlight" title="追加金額總計">
+                                追加: ${{ Number(row.追加金額總計).toLocaleString() }}
+                            </span>
+                            <span v-if="Number(row.訂單金額總計) > 0" class="total-highlight" title="訂單金額總計">
+                                總計: ${{ Number(row.訂單金額總計).toLocaleString() }}
+                            </span>
                         </div>
-                    </template>
+                    </div>
 
-                    <template v-else>
-                        <span class="text-muted text-xs">等待處理 {{ row.備註 ? `(${row.備註})` : '' }}</span>
-                    </template>
+                    <!-- 第二行：品項名稱獨佔一行 -->
+                    <div class="card-line-title">
+                        <h3 class="item-title">{{ row.名稱 }}</h3>
+                    </div>
+
+                    <!-- 第三行：單一口味與多口味的智慧判斷 -->
+                    <div class="card-line-info">
+                        <!-- 單一口味 -->
+                        <div class="single-item-info" v-if="getValidFlavors(row.ID).length === 0">
+                            <span class="price-single" v-if="row.售價 && row.售價 !== '---'">
+                                售價: ${{ row.售價 }}
+                            </span>
+                            <span v-if="getSingleItemLimit(row.ID)" class="limit-badge">
+                                限量: {{ getSingleItemLimit(row.ID) }}
+                            </span>
+                            <span v-if="hasValidDeadline(row)" class="time-badge">
+                                限時: {{ row.限時開始 }} ~ {{ row.限時結束 }}
+                            </span>
+                        </div>
+
+                        <!-- 多口味 -->
+                        <div class="flavor-inline-list" v-else>
+                            <span class="flavor-label">口味：</span>
+                            <span
+                                v-for="flv in getValidFlavors(row.ID)"
+                                :key="flv.ID || flv.口味"
+                                class="flavor-mini-tag"
+                            >
+                                {{ flv.口味 }} <b class="text-emerald">${{ flv.價格 }}</b>
+                                <span v-if="flv.限量" class="limit-badge">限量: {{ flv.限量 }}</span>
+                            </span>
+                            <span v-if="hasValidDeadline(row)" class="time-badge">
+                                限時: {{ row.限時開始 }} ~ {{ row.限時結束 }}
+                            </span>
+                        </div>
+                    </div>
+
+                    <!-- 額外備註顯示 -->
+                    <div class="card-line-details" v-if="row.備註">
+                        <span class="remark-text">備註: {{ row.備註 }}</span>
+                    </div>
+
+                    <!-- 第四行：操作按鈕區 -->
+                    <div class="card-line-footer">
+                        <template v-if="row.狀態 === '已結單'">
+                            <button class="action-btn btn-view-full" @click="handleAction('view', row)">
+                                👁️ 檢視訂單
+                            </button>
+                        </template>
+
+                        <template v-else-if="row.狀態 === '開啟中'">
+                            <button class="action-btn btn-primary-soft" @click="handleAction('open', row)">
+                                開啟
+                            </button>
+                            <button class="action-btn btn-success-soft" @click="handleAction('upd', row)">
+                                管理
+                            </button>
+
+                            <div class="dropdown-wrapper">
+                                <button class="action-btn btn-more" @click.stop="toggleDropdown(row.ID)">
+                                    更多
+                                </button>
+                                <ul v-if="activeDropdownId === row.ID" class="dropdown-menu-modern">
+                                    <li><a href="#" @click.prevent="handleAction('edit', row)">編輯訂單</a></li>
+                                    <li><a href="#" @click.prevent="handleAction('chkout', row)">結算訂單</a></li>
+                                    <li><a href="#" @click.prevent="handleAction('agent', row)">代購訂單</a></li>
+                                    <li><a href="#" class="text-danger" @click.prevent="handleAction('delete', row)">刪除訂單</a></li>
+                                </ul>
+                            </div>
+                        </template>
+
+                        <template v-else>
+                            <span class="text-muted text-xs">等待處理 {{ row.備註 ? `(${row.備註})` : '' }}</span>
+                        </template>
+                    </div>
                 </div>
+            </div>
+
+            <!-- 現代化分頁導航 -->
+            <div class="pagination-modern" v-if="totalPages > 1">
+                <button class="page-btn" :disabled="currentPage === 1" @click="currentPage--">
+                    ← 上一頁
+                </button>
+                <span class="page-info">第 {{ currentPage }} / {{ totalPages }} 頁</span>
+                <button class="page-btn" :disabled="currentPage === totalPages" @click="currentPage++">
+                    下一頁 →
+                </button>
             </div>
         </div>
 
-        <!-- 現代化分頁導航 -->
-        <div class="pagination-modern" v-if="totalPages > 1">
-            <button class="page-btn" :disabled="currentPage === 1" @click="currentPage--">
-                ← 上一頁
-            </button>
-            <span class="page-info">第 {{ currentPage }} / {{ totalPages }} 頁</span>
-            <button class="page-btn" :disabled="currentPage === totalPages" @click="currentPage++">
-                下一頁 →
-            </button>
+        <!-- ==================== TAB 2: 歷史訂單 ==================== -->
+        <div v-show="activeMainTab === 'history'">
+            <div class="dashboard-top-bar">
+                <button class="btn-primary-action" @click="openSearchModal">
+                    🔍 條件查詢
+                </button>
+                <button class="btn-refresh" @click="reloadHistoryCache">
+                    重整快取
+                </button>
+            </div>
+
+            <!-- 查詢結果摘要標題 -->
+            <div v-if="historyResultTitle" class="history-summary-header">
+                <strong>{{ historyResultTitle }}</strong>
+                <span class="text-muted text-xs" v-if="historyResultSubtitle">{{ historyResultSubtitle }}</span>
+            </div>
+
+            <!-- 少於 3 筆：表格明細 -->
+            <div v-if="historyViewMode === 'table'" class="card-list">
+                <div v-if="historyTableRows.length === 0" class="empty-state">
+                    <p>目前沒有符合條件的歷史訂單資料</p>
+                </div>
+
+                <div v-for="hRow in historyTableRows" :key="hRow.ID" class="item-card-compact">
+                    <div class="card-line-top">
+                        <span class="status-pill status-closed">歷史開團</span>
+                        <span class="total-highlight">總金額: ${{ Number(hRow.訂單金額總計 || 0).toLocaleString() }}</span>
+                    </div>
+                    <div class="card-line-title">
+                        <h3 class="item-title">{{ hRow.名稱 }}</h3>
+                    </div>
+                    <div class="card-line-info">
+                        <div class="single-item-info">
+                            <span class="price-single">
+                                售價: {{ hRow.售價 === '---' ? '多口味' : `$${hRow.售價}` }}
+                            </span>
+                            <span class="time-badge" v-if="hRow.開啟時間">
+                                開團時間: {{ String(hRow.開啟時間).slice(0, 10) }}
+                            </span>
+                        </div>
+                        <!-- 若為多口味，展開顯示各口味價格 -->
+                        <div v-if="hRow.售價 === '---'" class="flavor-inline-list mt-1">
+                            <span
+                                v-for="flv in getHistoryRowFlavors(hRow.ID)"
+                                :key="flv.口味"
+                                class="flavor-mini-tag"
+                            >
+                                {{ flv.口味 }} <b class="text-emerald">${{ flv.價格 }}</b>
+                            </span>
+                        </div>
+                    </div>
+                    <div class="card-line-footer">
+                        <button
+                            class="action-btn btn-view-full"
+                            @click="handleAction('view', { ...hRow, search: 'Y' })"
+                        >
+                            👁️ 檢視當時訂單明細
+                        </button>
+                    </div>
+                </div>
+            </div>
+
+            <!-- 3 筆以上或人員統計：數據長條視覺化圖表 -->
+            <div v-else-if="historyViewMode === 'chart'" class="history-charts-wrapper">
+                <div class="box-panel" v-if="historyChartSeries.length > 0">
+                    <h4 class="chart-section-title">📊 訂單金額 / 數量統計</h4>
+                    <div v-for="(bar, idx) in historyChartSeries" :key="idx" class="chart-bar-item">
+                        <div class="chart-bar-label">
+                            <span>{{ bar.label }}</span>
+                            <b>{{ bar.displayValue }}</b>
+                        </div>
+                        <div class="chart-bar-track">
+                            <div
+                                class="chart-bar-fill"
+                                :style="{ width: bar.percent + '%', backgroundColor: bar.color }"
+                            ></div>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="box-panel mt-2" v-if="historyPriceSeries.length > 0">
+                    <h4 class="chart-section-title">💰 歷次售價趨勢</h4>
+                    <div v-for="(pItem, idx) in historyPriceSeries" :key="idx" class="price-trend-row">
+                        <span class="trend-name">{{ pItem.label }}</span>
+                        <span class="trend-values">{{ pItem.pricesText }}</span>
+                    </div>
+                </div>
+            </div>
+
+            <div v-else class="empty-state">
+                <p>請點擊上方「🔍 條件查詢」篩選品項或人員購買紀錄</p>
+            </div>
         </div>
 
-        <!-- 📱 1. 檢視訂單側滑抽屜 Modal -->
+        <!-- ==================== MODAL 1: 管理 / 檢視訂單 + 追加訂單 ==================== -->
         <div v-if="showOrderModal" class="modal-backdrop" @click.self="closeOrderModal">
-            <div class="bottom-sheet-modal">
+            <div class="bottom-sheet-modal tall-sheet">
                 <div class="sheet-handle-bar"></div>
                 <div class="modal-header">
-                    <h3>{{ currentOrderTitle }} - 訂單明細</h3>
+                    <h3>{{ currentOrderTitle }} - {{ orderModalMode === 'upd' ? '管理訂單' : '檢視訂單' }}</h3>
                     <button class="btn-close" @click="closeOrderModal">✕</button>
                 </div>
 
-                <div class="summary-banner">
-                    <div class="summary-banner-title">📊 總量統計</div>
-                    <div class="summary-banner-content">
-                        <span v-if="isCurrentItemMultiFlavor" class="summary-flavor-group">
-                            <span v-for="(qty, flv) in overallFlavorTotals" :key="flv" class="summary-flavor-badge">
-                                {{ flv }}: <b class="summary-q-num">{{ qty }}</b>
-                            </span>
-                        </span>
-                        <span v-else class="summary-single-group">
-                            總訂購數量: <b class="summary-total-num">{{ overallTotalQty }}</b> 份
-                        </span>
-                    </div>
+                <!-- 頁籤切換：已結單且非歷史查詢時顯示「追加訂單」頁籤 -->
+                <div class="sub-tabs-bar" v-if="orderModalMode === 'view' && !isHistorySearchView">
+                    <button
+                        :class="['sub-tab-btn', { active: orderSubTab === 'list' }]"
+                        @click="orderSubTab = 'list'"
+                    >
+                        訂購明細
+                    </button>
+                    <button
+                        :class="['sub-tab-btn', { active: orderSubTab === 'append' }]"
+                        @click="switchToAppendTab"
+                    >
+                        追加訂單
+                    </button>
                 </div>
-                
-                <div class="modal-body">
-                    <div v-if="orderLoading" class="loading-state"><p>載入訂單資料中...</p></div>
-                    <div v-else-if="groupedOrders.length === 0" class="empty-state"><p>目前沒有相關訂單資料</p></div>
-                    
-                    <div v-else class="order-items-list">
-                        <div v-for="(group, index) in groupedOrders" :key="index" class="order-card-row">
-                            <div class="ord-left">
-                                <div class="ord-name-line">
-                                    <span class="ord-name">{{ group.name }}</span>
-                                    <span v-if="group.isAppend" class="append-tag">追加</span>
-                                </div>
-                                <div class="ord-flavor-tags" v-if="group.type === 'multi'">
-                                    <span v-for="(q, flv) in group.flavorMap" :key="flv" class="flv-tag">
-                                        {{ flv }} <b class="q-num">x{{ q }}</b>
-                                    </span>
-                                </div>
-                            </div>
-                            
-                            <div class="ord-right">
-                                <span class="ord-single-qty" v-if="group.type === 'single'">
-                                    x{{ group.totalQty }}
+
+                <!-- 子頁籤 A：訂購明細 -->
+                <template v-if="orderSubTab === 'list'">
+                    <div class="summary-banner">
+                        <div class="summary-banner-title">📊 總量統計</div>
+                        <div class="summary-banner-content">
+                            <span v-if="isCurrentItemMultiFlavor" class="summary-flavor-group">
+                                <span v-for="(qty, flv) in overallFlavorTotals" :key="flv" class="summary-flavor-badge">
+                                    {{ flv }}: <b class="summary-q-num">{{ qty }}</b>
                                 </span>
-                                <span class="ord-subtotal">${{ group.totalAmount.toLocaleString() }}</span>
-                                <button class="btn-del-user" @click="handleDeleteUserOrder(group.name)">刪除</button>
+                            </span>
+                            <span v-else class="summary-single-group">
+                                總訂購數量: <b class="summary-total-num">{{ overallTotalQty }}</b> 份
+                            </span>
+                        </div>
+                    </div>
+
+                    <div class="modal-body">
+                        <div v-if="orderLoading" class="loading-state"><p>載入訂單資料中...</p></div>
+                        <div v-else-if="groupedOrders.length === 0" class="empty-state"><p>該品項查無訂單！</p></div>
+
+                        <div v-else class="order-items-list">
+                            <div v-for="(group, index) in groupedOrders" :key="index" class="order-card-row">
+                                <div class="ord-left">
+                                    <div class="ord-name-line">
+                                        <span class="ord-name">{{ group.name }}</span>
+                                        <span v-if="group.isAppend" class="append-tag">追加</span>
+                                    </div>
+                                    <div class="ord-flavor-tags" v-if="group.type === 'multi'">
+                                        <span v-for="(q, flv) in group.flavorMap" :key="flv" class="flv-tag">
+                                            {{ flv }} <b class="q-num">x{{ q }}</b>
+                                        </span>
+                                    </div>
+                                </div>
+
+                                <div class="ord-right">
+                                    <span class="ord-single-qty" v-if="group.type === 'single'">
+                                        x{{ group.totalQty }}
+                                    </span>
+                                    <span class="ord-subtotal">${{ group.totalAmount.toLocaleString() }}</span>
+                                    <button
+                                        v-if="orderModalMode === 'upd'"
+                                        class="btn-del-user"
+                                        @click="handleDeleteUserOrder(group.name)"
+                                    >
+                                        刪除
+                                    </button>
+                                </div>
                             </div>
                         </div>
                     </div>
-                </div>
 
-                <div class="modal-footer">
-                    <span class="total-label">總金額(元)：</span>
-                    <span class="total-value">${{ orderTotal.toLocaleString() }}</span>
-                </div>
+                    <!-- 底部總金額與管理操作按鈕 -->
+                    <div class="modal-footer modal-footer-column">
+                        <div class="footer-total-row">
+                            <span class="total-label">總金額(元)：</span>
+                            <span class="total-value">${{ orderTotal.toLocaleString() }}</span>
+                        </div>
+
+                        <!-- 管理訂單模式 (upd)：延後訂單、分享訂單 -->
+                        <div v-if="orderModalMode === 'upd'" class="footer-action-row">
+                            <button class="action-btn btn-warning-solid flex-1" @click="handleOrderStatusAction('stop')">
+                                ⏰ 延後訂單
+                            </button>
+                            <button class="action-btn btn-primary-solid flex-1" @click="handleShareOrderList">
+                                📤 分享訂單
+                            </button>
+                        </div>
+
+                        <!-- 已結單檢視模式 (view)：移除追加訂單 -->
+                        <div v-else-if="orderModalMode === 'view' && !isHistorySearchView" class="footer-action-row">
+                            <button class="action-btn btn-danger-solid w-100" @click="handleOrderStatusAction('delapd')">
+                                🗑️ 移除追加訂單
+                            </button>
+                        </div>
+                    </div>
+                </template>
+
+                <!-- 子頁籤 B：追加訂單 (對齊原 #append) -->
+                <template v-else-if="orderSubTab === 'append'">
+                    <div class="modal-body form-body">
+                        <div class="info-alert-box">
+                            <div>ℹ️ 因已結單關係，追加訂單如為相同姓名者不做累加計算</div>
+                            <div>ℹ️ 追加後訂單，如需調整只能一併刪除重新填寫追加訂單</div>
+                        </div>
+
+                        <div class="form-group">
+                            <label><span class="text-danger">*</span> 追加名單</label>
+                            <div
+                                v-for="(apRow, idx) in appendRows"
+                                :key="idx"
+                                class="flavor-input-row"
+                            >
+                                <input
+                                    type="text"
+                                    v-model="apRow.name"
+                                    placeholder="姓名"
+                                    class="form-input flex-2"
+                                />
+                                <select
+                                    v-if="isCurrentItemMultiFlavor"
+                                    v-model="apRow.flavor"
+                                    class="form-select flex-2"
+                                >
+                                    <option value="" disabled>口味</option>
+                                    <option
+                                        v-for="flv in getValidFlavors(currentItemId)"
+                                        :key="flv.口味"
+                                        :value="flv.口味"
+                                    >
+                                        {{ flv.口味 }}
+                                    </option>
+                                </select>
+                                <input
+                                    type="number"
+                                    min="1"
+                                    v-model="apRow.qty"
+                                    placeholder="數量"
+                                    class="form-input flex-1"
+                                />
+                                <button
+                                    v-if="appendRows.length > 1"
+                                    type="button"
+                                    class="btn-remove-flavor"
+                                    @click="appendRows.splice(idx, 1)"
+                                >
+                                    ✕
+                                </button>
+                            </div>
+
+                            <button
+                                type="button"
+                                class="btn-add-flavor-full"
+                                @click="appendRows.push({ name: '', flavor: '', qty: '' })"
+                            >
+                                ＋ 新增名字
+                            </button>
+                        </div>
+                    </div>
+
+                    <div class="modal-footer">
+                        <button class="btn-submit-item" @click="submitAppendOrder" :disabled="submittingItem">
+                            {{ submittingItem ? '送出中...' : '確認送出追加' }}
+                        </button>
+                    </div>
+                </template>
             </div>
         </div>
 
-        <!-- 📱 2. 新增團購項目側滑抽屜 Modal (對齊原 #groupBuyModal 完整規格) -->
+        <!-- ==================== MODAL 2: 新增團購項目 (#groupBuyModal) ==================== -->
         <div v-if="showAddItemModal" class="modal-backdrop" @click.self="closeAddItemModal">
             <div class="bottom-sheet-modal tall-sheet">
                 <div class="sheet-handle-bar"></div>
@@ -191,7 +421,7 @@
                     <h3>新增團購項目</h3>
                     <button class="btn-close" @click="closeAddItemModal">✕</button>
                 </div>
-                
+
                 <div class="modal-body form-body">
                     <!-- 1. 品項名稱與新品項/舊品項切換 -->
                     <div class="form-group">
@@ -211,25 +441,25 @@
 
                         <!-- 新品項輸入框 + AI 助手按鈕 -->
                         <div v-if="newItemForm.itemType === 'new'" class="input-with-ai">
-                            <input 
-                                type="text" 
-                                v-model="newItemForm.name" 
-                                placeholder="請輸入品項名稱" 
-                                class="form-input flex-1" 
+                            <input
+                                type="text"
+                                v-model="newItemForm.name"
+                                placeholder="請輸入品項名稱"
+                                class="form-input flex-1"
                             />
                             <button type="button" class="btn-ai-tool btn-ai-magic" title="AI 命名助手" @click="handleAiHelp('ainame')">
                                 🪄
                             </button>
-                            <button type="button" class="btn-ai-tool btn-ai-desc" title="AI 文案生成" @click="handleAiHelp('aidesc')">
+                            <button type="button" class="btn-ai-tool btn-ai-desc" title="AI 命名說明" @click="showAiDescription">
                                 ℹ️
                             </button>
                         </div>
 
                         <!-- AI 命名選項產生區 -->
                         <div v-if="newItemForm.itemType === 'new' && aiNameOptions.length > 0" class="ai-options-box">
-                            <span 
-                                v-for="(opt, idx) in aiNameOptions" 
-                                :key="idx" 
+                            <span
+                                v-for="(opt, idx) in aiNameOptions"
+                                :key="idx"
                                 class="ai-option-chip"
                                 @click="newItemForm.name = opt"
                             >
@@ -248,17 +478,29 @@
                         </div>
                     </div>
 
-                    <!-- 2. 團購期間 -->
+                    <!-- 2. 團購期間 (已整合 Flatpickr + .datepickr) -->
                     <div class="form-group">
                         <label>團購期間</label>
                         <div class="form-row">
                             <div class="half">
                                 <span class="sub-input-label">起始時間</span>
-                                <input type="datetime-local" v-model="newItemForm.startDate" class="form-input w-100" />
+                                <input
+                                    type="text"
+                                    :value="newItemForm.startDate"
+                                    v-flatpickr="{ form: newItemForm, field: 'startDate', endField: 'endDate', minToday: true }"
+                                    placeholder="請選擇起始日期"
+                                    class="form-input w-100 datepickr"
+                                />
                             </div>
                             <div class="half">
                                 <span class="sub-input-label">結束時間</span>
-                                <input type="datetime-local" v-model="newItemForm.endDate" class="form-input w-100" />
+                                <input
+                                    type="text"
+                                    :value="newItemForm.endDate"
+                                    v-flatpickr="{ form: newItemForm, field: 'endDate', minToday: true }"
+                                    placeholder="請選擇結束日期"
+                                    class="form-input w-100 datepickr"
+                                />
                             </div>
                         </div>
                     </div>
@@ -300,38 +542,42 @@
                             <input type="number" min="1" v-model="flv.price" placeholder="價格" class="form-input flex-1" />
                             <input type="text" v-model="flv.name" placeholder="口味" class="form-input flex-2" />
                             <input type="number" min="0" v-model="flv.limit" placeholder="數量" class="form-input flex-1" />
-                            <button 
-                                v-if="newItemForm.flavors.length > 1" 
-                                type="button" 
-                                class="btn-remove-flavor" 
-                                @click="removeFlavorRow(index)"
+                            <button
+                                v-if="newItemForm.flavors.length > 2"
+                                type="button"
+                                class="btn-remove-flavor"
+                                @click="newItemForm.flavors.splice(index, 1)"
                             >
                                 ✕
                             </button>
                         </div>
-                        <button type="button" class="btn-add-flavor-full" @click="addFlavorRow">
+                        <button
+                            type="button"
+                            class="btn-add-flavor-full"
+                            @click="newItemForm.flavors.push({ price: '', name: '', limit: 0 })"
+                        >
                             ＋ 新增口味
                         </button>
                     </div>
 
                     <!-- 4. 圖片上傳與預覽 -->
                     <div class="form-group">
-                        <label>圖片 <span class="hint-text">(支援多張 .jpg, .png)</span></label>
-                        <input 
-                            type="file" 
-                            multiple 
-                            accept=".jpg, .jpeg, .png" 
-                            @change="handleFileUpload" 
-                            class="form-input file-input-custom" 
+                        <label>圖片 <span class="hint-text">(最多 3 張，單張限 5MB 內 .jpg/.png)</span></label>
+                        <input
+                            type="file"
+                            multiple
+                            accept=".jpg, .jpeg, .png"
+                            @change="(e) => handleImageUpload(e, 'add')"
+                            class="form-input file-input-custom"
                         />
-                        <div v-if="previewImages.length > 0" class="image-preview-grid">
-                            <div v-for="(img, idx) in previewImages" :key="idx" class="preview-thumb-box">
-                                <img :src="img.url" alt="預覽圖" />
-                                <button type="button" class="btn-remove-img" @click="removePreviewImage(idx)">✕</button>
+                        <div v-if="newItemForm.images.length > 0" class="image-preview-grid">
+                            <div v-for="(img, idx) in newItemForm.images" :key="idx" class="preview-thumb-box">
+                                <img :src="img.previewUrl" alt="預覽圖" />
+                                <button type="button" class="btn-remove-img" @click="newItemForm.images.splice(idx, 1)">✕</button>
                             </div>
                         </div>
-                        <div v-if="previewImages.length > 0" class="file-count-text">
-                            已選擇 {{ previewImages.length }} 張圖片
+                        <div v-if="newItemForm.images.length > 0" class="file-count-text">
+                            已選擇 {{ newItemForm.images.length }} 張圖片
                         </div>
                     </div>
 
@@ -365,11 +611,23 @@
                                 <div class="form-row">
                                     <div class="half">
                                         <span class="sub-input-label">行程起始</span>
-                                        <input type="datetime-local" v-model="newItemForm.scheduleStartDate" class="form-input w-100" />
+                                        <input
+                                            type="text"
+                                            :value="newItemForm.scheduleStartDate"
+                                            v-flatpickr="{ form: newItemForm, field: 'scheduleStartDate', endField: 'scheduleEndDate', minToday: true }"
+                                            placeholder="請選擇行程起始"
+                                            class="form-input w-100 datepickr"
+                                        />
                                     </div>
                                     <div class="half">
                                         <span class="sub-input-label">行程結束</span>
-                                        <input type="datetime-local" v-model="newItemForm.scheduleEndDate" class="form-input w-100" />
+                                        <input
+                                            type="text"
+                                            :value="newItemForm.scheduleEndDate"
+                                            v-flatpickr="{ form: newItemForm, field: 'scheduleEndDate', minToday: true }"
+                                            placeholder="請選擇行程結束"
+                                            class="form-input w-100 datepickr"
+                                        />
                                     </div>
                                 </div>
                             </div>
@@ -384,11 +642,404 @@
                 </div>
             </div>
         </div>
+
+        <!-- ==================== MODAL 3: 維護 / 編輯團購項目 (#editModal) ==================== -->
+        <div v-if="showEditModal" class="modal-backdrop" @click.self="showEditModal = false">
+            <div class="bottom-sheet-modal tall-sheet">
+                <div class="sheet-handle-bar"></div>
+                <div class="modal-header">
+                    <h3>維護團購項目</h3>
+                    <button class="btn-close" @click="showEditModal = false">✕</button>
+                </div>
+
+                <div class="modal-body form-body">
+                    <div class="form-group">
+                        <label><span class="text-danger">*</span> 品項名稱</label>
+                        <input type="text" :value="editForm.name" disabled class="form-input w-100 input-disabled" />
+                    </div>
+
+                    <!-- 團購期間 (editStartDate / editEndDate + .datepickr) -->
+                    <div class="form-group">
+                        <label>團購期間</label>
+                        <div class="form-row">
+                            <div class="half">
+                                <span class="sub-input-label">起始時間</span>
+                                <input
+                                    id="editStartDate"
+                                    type="text"
+                                    :value="editForm.editStartDate"
+                                    v-flatpickr="{ form: editForm, field: 'editStartDate', endField: 'editEndDate', minToday: true }"
+                                    placeholder="請選擇起始日期"
+                                    class="form-input w-100 datepickr"
+                                />
+                            </div>
+                            <div class="half">
+                                <span class="sub-input-label">結束時間</span>
+                                <input
+                                    id="editEndDate"
+                                    type="text"
+                                    :value="editForm.editEndDate"
+                                    v-flatpickr="{ form: editForm, field: 'editEndDate', minToday: true }"
+                                    placeholder="請選擇結束日期"
+                                    class="form-input w-100 datepickr"
+                                />
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- 單口味編輯 -->
+                    <div v-if="editForm.flavorType === 'single'" class="form-group box-panel">
+                        <label><span class="text-danger">*</span> 價格與限量 <span class="hint-text">(※ 0為不限量)</span></label>
+                        <div class="form-row">
+                            <div class="half">
+                                <input type="number" min="1" v-model="editForm.editPrice" placeholder="價格" class="form-input w-100" />
+                            </div>
+                            <div class="half">
+                                <input type="number" min="0" v-model="editForm.editNum" placeholder="數量" class="form-input w-100" />
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- 多口味編輯 -->
+                    <div v-else class="form-group box-panel">
+                        <label><span class="text-danger">*</span> 口味與限量 <span class="hint-text">(※ 0為不限量)</span></label>
+                        <div v-for="(flv, index) in editForm.flavors" :key="index" class="flavor-input-row">
+                            <input type="number" min="1" v-model="flv.price" placeholder="價格" class="form-input flex-1" />
+                            <input type="text" v-model="flv.name" placeholder="口味" class="form-input flex-2" />
+                            <input type="number" min="0" v-model="flv.limit" placeholder="數量" class="form-input flex-1" />
+                            <button
+                                v-if="editForm.flavors.length > 1"
+                                type="button"
+                                class="btn-remove-flavor"
+                                @click="editForm.flavors.splice(index, 1)"
+                            >
+                                ✕
+                            </button>
+                        </div>
+                        <button
+                            type="button"
+                            class="btn-add-flavor-full"
+                            @click="editForm.flavors.push({ price: '', name: '', limit: 0 })"
+                        >
+                            ＋ 新增口味
+                        </button>
+                    </div>
+
+                    <!-- 圖片維護 -->
+                    <div class="form-group">
+                        <label>圖片 <span class="hint-text">(最多 3 張 .jpg/.png)</span></label>
+                        <input
+                            type="file"
+                            multiple
+                            accept=".jpg, .jpeg, .png"
+                            @change="(e) => handleImageUpload(e, 'edit')"
+                            class="form-input file-input-custom"
+                        />
+                        <div v-if="editForm.images.length > 0" class="image-preview-grid">
+                            <div v-for="(img, idx) in editForm.images" :key="idx" class="preview-thumb-box">
+                                <img :src="img.previewUrl" alt="預覽圖" />
+                                <button type="button" class="btn-remove-img" @click="editForm.images.splice(idx, 1)">✕</button>
+                            </div>
+                        </div>
+                        <div v-if="editForm.images.length > 0" class="file-count-text">
+                            已選擇 {{ editForm.images.length }} 張圖片
+                        </div>
+                    </div>
+                </div>
+
+                <div class="modal-footer">
+                    <button class="btn-submit-item" @click="submitEditItem" :disabled="submittingItem">
+                        {{ submittingItem ? '儲存中...' : '編輯團購' }}
+                    </button>
+                </div>
+            </div>
+        </div>
+
+        <!-- ==================== MODAL 4: 開啟團購文案 (#cartModal) ==================== -->
+        <div v-if="showCartModal" class="modal-backdrop" @click.self="showCartModal = false">
+            <div class="bottom-sheet-modal tall-sheet">
+                <div class="sheet-handle-bar"></div>
+                <div class="modal-header">
+                    <h3>開啟團購 - {{ cartTargetRow?.名稱 }}</h3>
+                    <button class="btn-close" @click="showCartModal = false">✕</button>
+                </div>
+
+                <div class="modal-body form-body">
+                    <button
+                        type="button"
+                        class="btn-ai-banner"
+                        @click="generateAiCartCopy"
+                        :disabled="generatingAiCopy"
+                    >
+                        📝 {{ generatingAiCopy ? 'AI 撰寫中...' : 'AI 文案助手' }}
+                        <span class="beta-badge">Beta</span>
+                    </button>
+
+                    <div class="form-group">
+                        <div class="label-with-radios">
+                            <label>團購宣傳文案</label>
+                            <button type="button" class="btn-copy-small" @click="copyCartText">
+                                📋 複製文案
+                            </button>
+                        </div>
+                        <textarea
+                            v-model="cartContentText"
+                            rows="9"
+                            class="form-input w-100 textarea-copy"
+                            placeholder="請輸入團購內容..."
+                        ></textarea>
+                    </div>
+                </div>
+
+                <div class="modal-footer">
+                    <button class="btn-submit-item" @click="shareCartToLine">
+                        🚀 開啟並分享團購
+                    </button>
+                </div>
+            </div>
+        </div>
+
+        <!-- ==================== MODAL 5: 代購訂單 (#AgentModal) ==================== -->
+        <div v-if="showAgentModal" class="modal-backdrop" @click.self="showAgentModal = false">
+            <div class="bottom-sheet-modal tall-sheet">
+                <div class="sheet-handle-bar"></div>
+                <div class="modal-header">
+                    <h3>代購訂單 - {{ agentForm.prdName }}</h3>
+                    <button class="btn-close" @click="showAgentModal = false">✕</button>
+                </div>
+
+                <div class="modal-body form-body">
+                    <div class="form-group">
+                        <div class="label-with-radios">
+                            <label><span class="text-danger">*</span> 代訂姓名來源</label>
+                            <div class="radio-group-inline">
+                                <label class="radio-label">
+                                    <input
+                                        type="radio"
+                                        value="new"
+                                        v-model="agentForm.nameType"
+                                        @change="handleAgentNameTypeChange"
+                                    />
+                                    新名字
+                                </label>
+                                <label class="radio-label">
+                                    <input
+                                        type="radio"
+                                        value="old"
+                                        v-model="agentForm.nameType"
+                                        :disabled="!agentForm.hasClosedHistory"
+                                        @change="handleAgentNameTypeChange"
+                                    />
+                                    舊名字
+                                </label>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="form-group box-panel">
+                        <div v-for="(agRow, idx) in agentForm.rows" :key="idx" class="flavor-input-row">
+                            <!-- 新名字輸入框 -->
+                            <input
+                                v-if="agentForm.nameType === 'new'"
+                                type="text"
+                                v-model="agRow.name"
+                                placeholder="姓名"
+                                class="form-input flex-2"
+                            />
+                            <!-- 舊名字下拉選單 -->
+                            <select
+                                v-else
+                                v-model="agRow.name"
+                                class="form-select flex-2"
+                            >
+                                <option value="" disabled>請選擇姓名</option>
+                                <option v-for="oldName in agentOldNames" :key="oldName" :value="oldName">
+                                    {{ oldName }}
+                                </option>
+                            </select>
+
+                            <!-- 多口味下拉選單 -->
+                            <select
+                                v-if="agentForm.isMultiFlavor"
+                                v-model="agRow.flavor"
+                                class="form-select flex-2"
+                            >
+                                <option value="" disabled>口味</option>
+                                <option
+                                    v-for="flv in getValidFlavors(agentForm.prdId)"
+                                    :key="flv.口味"
+                                    :value="flv.口味"
+                                >
+                                    {{ flv.口味 }}
+                                </option>
+                            </select>
+
+                            <input
+                                type="number"
+                                min="1"
+                                v-model="agRow.qty"
+                                placeholder="數量"
+                                class="form-input flex-1"
+                            />
+
+                            <button
+                                v-if="agentForm.rows.length > 1"
+                                type="button"
+                                class="btn-remove-flavor"
+                                @click="agentForm.rows.splice(idx, 1)"
+                            >
+                                ✕
+                            </button>
+                        </div>
+
+                        <button
+                            type="button"
+                            class="btn-add-flavor-full"
+                            @click="agentForm.rows.push({ name: '', flavor: '', qty: '' })"
+                        >
+                            ＋ 新增名字
+                        </button>
+                    </div>
+                </div>
+
+                <div class="modal-footer">
+                    <button class="btn-submit-item" @click="submitAgentOrder" :disabled="submittingItem">
+                        {{ submittingItem ? '送出中...' : '確認送出代購' }}
+                    </button>
+                </div>
+            </div>
+        </div>
+
+        <!-- ==================== MODAL 6: 歷史訂單查詢 (#searchModal) ==================== -->
+        <div v-if="showSearchModal" class="modal-backdrop" @click.self="showSearchModal = false">
+            <div class="bottom-sheet-modal tall-sheet">
+                <div class="sheet-handle-bar"></div>
+                <div class="modal-header">
+                    <h3>歷史訂單查詢</h3>
+                    <button class="btn-close" @click="showSearchModal = false">✕</button>
+                </div>
+
+                <div class="sub-tabs-bar">
+                    <button
+                        :class="['sub-tab-btn', { active: searchSubTab === 'prd' }]"
+                        @click="searchSubTab = 'prd'"
+                    >
+                        訂單查詢
+                    </button>
+                    <button
+                        :class="['sub-tab-btn', { active: searchSubTab === 'emp' }]"
+                        @click="searchSubTab = 'emp'"
+                    >
+                        人員購買紀錄
+                    </button>
+                </div>
+
+                <!-- 查詢頁籤 A：依品項查詢 -->
+                <div v-if="searchSubTab === 'prd'" class="modal-body form-body">
+                    <div class="form-group">
+                        <div class="label-with-radios">
+                            <label><span class="text-danger">*</span> 選擇品項</label>
+                            <button type="button" class="btn-copy-small" @click="reloadHistoryCache">
+                                🔄 同步資料
+                            </button>
+                        </div>
+                        <select v-model="searchForm.selectedPrd" class="form-select w-100">
+                            <option value="" disabled>請選擇品項</option>
+                            <option v-for="p in searchPrdOptions" :key="p.name" :value="p.name">
+                                {{ p.name }} ({{ p.isMulti ? '多' : '單' }} / 共 {{ p.count }} 次)
+                            </option>
+                        </select>
+                    </div>
+
+                    <!-- 當該品項開團 >= 3 次才顯示日期範圍 (最多 6 個月) -->
+                    <div v-if="selectedSearchPrdCount >= 3" class="form-group">
+                        <label><span class="text-danger">*</span> 日期範圍 <span class="hint-text">(最多 6 個月)</span></label>
+                        <div class="form-row">
+                            <div class="half">
+                                <span class="sub-input-label">起始日期</span>
+                                <input
+                                    type="text"
+                                    :value="searchForm.ordStartDate"
+                                    v-flatpickr="{ form: searchForm, field: 'ordStartDate', endField: 'ordEndDate', enableTime: false, dateFormat: 'Y/m/d', maxToday: true }"
+                                    class="form-input w-100 datepickr"
+                                />
+                            </div>
+                            <div class="half">
+                                <span class="sub-input-label">結束日期</span>
+                                <input
+                                    type="text"
+                                    :value="searchForm.ordEndDate"
+                                    v-flatpickr="{ form: searchForm, field: 'ordEndDate', enableTime: false, dateFormat: 'Y/m/d', maxToday: true }"
+                                    class="form-input w-100 datepickr"
+                                />
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="modal-footer px-0">
+                        <button class="btn-submit-item" @click="executeOrderSearch">
+                            🔍 查詢品項紀錄
+                        </button>
+                    </div>
+                </div>
+
+                <!-- 查詢頁籤 B：依人員查詢 -->
+                <div v-else class="modal-body form-body">
+                    <div class="form-group">
+                        <div class="label-with-radios">
+                            <label><span class="text-danger">*</span> 選擇人員</label>
+                            <button type="button" class="btn-copy-small" @click="reloadHistoryCache">
+                                🔄 同步資料
+                            </button>
+                        </div>
+                        <select v-model="searchForm.selectedEmp" class="form-select w-100">
+                            <option value="" disabled>請選擇人員</option>
+                            <option v-for="emp in searchEmpOptions" :key="emp" :value="emp">
+                                {{ emp }}
+                            </option>
+                        </select>
+                    </div>
+
+                    <div class="form-group">
+                        <label><span class="text-danger">*</span> 日期範圍 <span class="hint-text">(最多 3 個月)</span></label>
+                        <div class="form-row">
+                            <div class="half">
+                                <span class="sub-input-label">起始日期</span>
+                                <input
+                                    type="text"
+                                    :value="searchForm.prdStartDate"
+                                    v-flatpickr="{ form: searchForm, field: 'prdStartDate', endField: 'prdEndDate', enableTime: false, dateFormat: 'Y/m/d', maxToday: true }"
+                                    class="form-input w-100 datepickr"
+                                />
+                            </div>
+                            <div class="half">
+                                <span class="sub-input-label">結束日期</span>
+                                <input
+                                    type="text"
+                                    :value="searchForm.prdEndDate"
+                                    v-flatpickr="{ form: searchForm, field: 'prdEndDate', enableTime: false, dateFormat: 'Y/m/d', maxToday: true }"
+                                    class="form-input w-100 datepickr"
+                                />
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="modal-footer px-0">
+                        <button class="btn-submit-item" @click="executeEmpSearch">
+                            🔍 查詢人員購買紀錄
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </div>
     </div>
 </template>
 
 <script setup>
-import { ref, computed, reactive, onMounted, onUnmounted } from 'vue'
+import { ref, computed, reactive, onMounted, onUnmounted, nextTick } from 'vue'
+import flatpickr from 'flatpickr'
+import 'flatpickr/dist/flatpickr.min.css'
+import { MandarinTraditional } from 'flatpickr/dist/l10n/zh-tw.js'
 import { fetchItemsData, postGasData } from '../services/api.js'
 
 const items = ref([])
@@ -397,63 +1048,106 @@ const loading = ref(false)
 const currentPage = ref(1)
 const pageSize = 5
 const activeDropdownId = ref(null)
+const activeMainTab = ref('items') // 'items' | 'history'
 
-// 📱 檢視訂單 Modal 狀態
-const showOrderModal = ref(false)
-const orderLoading = ref(false)
-const currentOrderTitle = ref('')
-const currentItemId = ref(null)
-const rawOrderList = ref([])
-const orderTotal = ref(0)
+// ==================== 共用 Flatpickr 指令 (.datepickr) ====================
+const pickerMap = new Map()
 
-// 📱 新增團購項目 Modal 狀態 (對齊原 #groupBuyModal)
-const showAddItemModal = ref(false)
-const submittingItem = ref(false)
-const showMoreOptions = ref(false)
-const aiNameOptions = ref([])
-const previewImages = ref([])
+const vFlatpickr = {
+    mounted(el, binding) {
+        const {
+            form,
+            field,
+            endField,
+            enableTime = true,
+            dateFormat = 'Y-m-d H:i',
+            minToday = false,
+            maxToday = false
+        } = binding.value || {}
 
-const newItemForm = reactive({
-    itemType: 'new',       // 'new' | 'old'
-    selectedOldId: '',
-    name: '',
-    startDate: '',
-    endDate: '',
-    flavorType: 'single',  // 'single' | 'multiple'
-    price: '',
-    singleLimit: 0,
-    flavors: [
-        { price: '', name: '', limit: 0 },
-        { price: '', name: '', limit: 0 }
-    ],
-    files: [],
-    scheduleType: '',      // '' | 'group_time' | 'custom_time'
-    scheduleStartDate: '',
-    scheduleEndDate: ''
-})
+        if (!form || !field) return
 
+        const options = {
+            locale: MandarinTraditional,
+            enableTime,
+            time_24hr: true,
+            dateFormat,
+            disableMobile: true,
+            defaultDate: form[field] || null,
+            onChange: (_selectedDates, dateStr) => {
+                form[field] = dateStr
+
+                if (endField) {
+                    const endFp = pickerMap.get(endField)
+                    if (endFp) {
+                        endFp.set('minDate', dateStr || null)
+                        if (form[endField] && dateStr && form[endField] < dateStr) {
+                            form[endField] = dateStr
+                            endFp.setDate(dateStr, false)
+                        }
+                    }
+                }
+            }
+        }
+
+        if (minToday) options.minDate = 'today'
+        if (maxToday) options.maxDate = 'today'
+
+        const instance = flatpickr(el, options)
+        el._fpInstance = instance
+        pickerMap.set(field, instance)
+    },
+    updated(el, binding) {
+        const { form, field } = binding.value || {}
+        const instance = el._fpInstance
+        if (!instance || !form || !field) return
+
+        const val = form[field] || ''
+        if (instance.input.value !== val) {
+            instance.setDate(val, false)
+        }
+    },
+    unmounted(el, binding) {
+        const { field } = binding.value || {}
+        if (field) pickerMap.delete(field)
+        if (el._fpInstance) {
+            el._fpInstance.destroy()
+            delete el._fpInstance
+        }
+    }
+}
+
+// ==================== 身分 UserId 初始化 ====================
 const getInitialUserId = () => {
     const urlParams = new URLSearchParams(window.location.search)
     const paramUserId = urlParams.get('userId')
-    
+
     if (paramUserId) {
         localStorage.setItem('cached_userId', paramUserId)
         return paramUserId
     }
-    
-    return localStorage.getItem('cached_userId') || 'LINE_USER_ID_PLACEHOLDER'
+
+    return localStorage.getItem('cached_userId') || window.userId || ''
 }
 
 const userId = ref(getInitialUserId())
 
+// ==================== 載入品項列表 ====================
 const loadData = async () => {
     loading.value = true
     try {
         const result = await fetchItemsData()
-        items.value = result.items
-        flavors.value = result.flavors
+        const rawItems = result.items || []
+        flavors.value = result.flavors || []
+
+        // 對齊 manager.html：依 ID 倒序並過濾有效狀態
+        items.value = [...rawItems]
+            .sort((a, b) => Number(b.ID) - Number(a.ID))
+            .filter(prd => Number(prd.訂單金額總計) > 0 || prd.狀態 === '開啟中' || prd.狀態 === '延後中')
+
         currentPage.value = 1
     } catch (error) {
+        console.error(error)
         alert('資料載入失敗，請稍後再試')
     } finally {
         loading.value = false
@@ -473,12 +1167,20 @@ const getSingleItemLimit = (itemId) => {
     if (item && item.限量) return item.限量
 
     const flavorRecord = flavors.value.find(f => String(f.品項ID || f.ID) === String(itemId))
-    if (flavorRecord && flavorRecord.限量) return flavorRecord.限量
+    if (flavorRecord && flavorRecord.限量 && Number(flavorRecord.限量) > 0) return flavorRecord.限量
 
     return null
 }
 
-// 取得不重複的歷史品項供「舊品項」下拉選單使用
+const hasValidDeadline = (row) => {
+    return (
+        row.限時開始 &&
+        row.限時結束 &&
+        row.限時開始 !== '---' &&
+        row.限時結束 !== '---'
+    )
+}
+
 const uniqueOldItems = computed(() => {
     const seen = new Set()
     return items.value.filter(item => {
@@ -516,65 +1218,249 @@ const closeDropdowns = () => {
     activeDropdownId.value = null
 }
 
+// ==================== MODAL 1: 管理 / 檢視訂單 & 追加訂單 ====================
+const showOrderModal = ref(false)
+const orderModalMode = ref('view') // 'view' | 'upd'
+const orderSubTab = ref('list')    // 'list' | 'append'
+const isHistorySearchView = ref(false)
+const orderLoading = ref(false)
+const currentOrderTitle = ref('')
+const currentItemId = ref(null)
+const rawOrderList = ref([])
+const orderTotal = ref(0)
+const appendRows = ref([{ name: '', flavor: '', qty: '' }])
+
 const isCurrentItemMultiFlavor = computed(() => {
     if (!currentItemId.value) return false
     return getValidFlavors(currentItemId.value).length > 0
 })
 
 const overallTotalQty = computed(() => {
+    if (orderModalMode.value === 'upd') {
+        return rawOrderList.value.reduce((sum, item) => {
+            const sub = Array.isArray(item.orders)
+                ? item.orders.reduce((s, o) => s + (Number(o.count) || 0), 0)
+                : 0
+            return sum + sub
+        }, 0)
+    }
     return rawOrderList.value.reduce((sum, ord) => sum + (Number(ord.數量) || 1), 0)
 })
 
 const overallFlavorTotals = computed(() => {
     const totals = {}
-    rawOrderList.value.forEach(ord => {
-        const flv = ord.口味
-        const qty = Number(ord.數量) || 1
-        if (flv) {
-            totals[flv] = (totals[flv] || 0) + qty
-        }
-    })
+    if (orderModalMode.value === 'upd') {
+        rawOrderList.value.forEach(item => {
+            (item.orders || []).forEach(ord => {
+                if (ord.taste) {
+                    totals[ord.taste] = (totals[ord.taste] || 0) + (Number(ord.count) || 0)
+                }
+            })
+        })
+    } else {
+        rawOrderList.value.forEach(ord => {
+            const flv = ord.口味
+            const qty = Number(ord.數量) || 1
+            if (flv) {
+                totals[flv] = (totals[flv] || 0) + qty
+            }
+        })
+    }
     return totals
 })
 
 const groupedOrders = computed(() => {
     const map = {}
-    
-    rawOrderList.value.forEach(ord => {
-        const name = ord.名稱 || ord.姓名 || ord.使用者 || '未具名'
-        const flavor = ord.口味 || ''
-        const qty = Number(ord.數量) || 1
-        const amount = Number(ord.小計 || ord.金額) || 0
-        const isAppend = ord.追加 === true || ord.isAppend === true || String(ord.備註 || '').includes('追加')
 
-        if (!map[name]) {
-            map[name] = {
-                name: name,
-                isAppend: isAppend,
-                flavorMap: {},
-                totalQty: 0,
-                totalAmount: 0,
-                type: flavor ? 'multi' : 'single'
+    if (orderModalMode.value === 'upd') {
+        // upd API 回傳結構: [{ name, orders: [{ taste, count, total }] }]
+        rawOrderList.value.forEach(item => {
+            const name = item.name || '未具名'
+            if (!map[name]) {
+                map[name] = {
+                    name,
+                    isAppend: String(name).includes('追加'),
+                    flavorMap: {},
+                    totalQty: 0,
+                    totalAmount: 0,
+                    type: isCurrentItemMultiFlavor.value ? 'multi' : 'single'
+                }
             }
-        }
+            ;(item.orders || []).forEach(ord => {
+                const qty = Number(ord.count) || 0
+                const total = Number(ord.total) || 0
+                map[name].totalQty += qty
+                map[name].totalAmount += total
+                if (ord.taste) {
+                    map[name].flavorMap[ord.taste] = (map[name].flavorMap[ord.taste] || 0) + qty
+                }
+            })
+        })
+    } else {
+        // view API 回傳結構: [{ 姓名, 口味, 數量, 金額 }]
+        rawOrderList.value.forEach(ord => {
+            const name = ord.名稱 || ord.姓名 || ord.使用者 || '未具名'
+            const flavor = ord.口味 || ''
+            const qty = Number(ord.數量) || 1
+            const amount = Number(ord.小計 || ord.金額) || 0
+            const isAppend = String(name).includes('追加') || String(ord.備註 || '').includes('追加')
 
-        map[name].totalQty += qty
-        map[name].totalAmount += amount
-        if (isAppend) map[name].isAppend = true
-
-        if (flavor) {
-            map[name].flavorMap[flavor] = (map[name].flavorMap[flavor] || 0) + qty
-        }
-    })
+            if (!map[name]) {
+                map[name] = {
+                    name,
+                    isAppend,
+                    flavorMap: {},
+                    totalQty: 0,
+                    totalAmount: 0,
+                    type: flavor ? 'multi' : 'single'
+                }
+            }
+            map[name].totalQty += qty
+            map[name].totalAmount += amount
+            if (isAppend) map[name].isAppend = true
+            if (flavor) {
+                map[name].flavorMap[flavor] = (map[name].flavorMap[flavor] || 0) + qty
+            }
+        })
+    }
 
     return Object.values(map)
 })
 
-// 💡 動作處理 (檢視、結單、刪除、延後)
+const switchToAppendTab = () => {
+    appendRows.value = [{ name: '', flavor: '', qty: '' }]
+    orderSubTab.value = 'append'
+}
+
+const submitAppendOrder = async () => {
+    const validRows = appendRows.value.filter(r => r.name.trim() && Number(r.qty) > 0)
+    if (validRows.length === 0) {
+        alert('請填寫追加姓名與有效數量')
+        return
+    }
+    if (isCurrentItemMultiFlavor.value && validRows.some(r => !r.flavor)) {
+        alert('請為每筆追加名單選擇口味')
+        return
+    }
+
+    const apOrders = validRows.map(r => ({
+        orders: [{ flavor: isCurrentItemMultiFlavor.value ? r.flavor : '', qty: r.qty }],
+        name: '(追加)' + r.name.trim(),
+        id: '(追加)' + r.name.trim(),
+        item: currentOrderTitle.value
+    }))
+
+    try {
+        submittingItem.value = true
+        const result = await postGasData({
+            type: 'append',
+            userId: userId.value,
+            id: currentItemId.value,
+            name: currentOrderTitle.value,
+            apOrders
+        })
+
+        if (result && result[0] && result[0].status === 'success') {
+            alert('追加成功！')
+            showOrderModal.value = false
+            await loadData()
+        } else {
+            alert(result[0]?.alert || '追加失敗，請稍後再試')
+        }
+    } catch (err) {
+        console.error(err)
+        alert('系統異常')
+    } finally {
+        submittingItem.value = false
+    }
+}
+
+const handleOrderStatusAction = async (type) => {
+    const labelMap = { stop: '延後該品項', delapd: '刪除追加訂單' }
+    if (!confirm(`確定要${labelMap[type] || '執行此操作'}「${currentOrderTitle.value}」嗎？此操作無法復原！`)) return
+
+    try {
+        orderLoading.value = true
+        const result = await postGasData({
+            type,
+            userId: userId.value,
+            id: currentItemId.value,
+            name: currentOrderTitle.value
+        })
+
+        if (result && result[0] && result[0].status === 'success') {
+            alert(`操作成功！${result[0].alert || ''}`)
+            showOrderModal.value = false
+            await loadData()
+        } else {
+            alert(result[0]?.alert || '操作失敗，請稍後再試')
+        }
+    } catch (err) {
+        console.error(err)
+        alert('系統異常')
+    } finally {
+        orderLoading.value = false
+    }
+}
+
+const handleShareOrderList = async () => {
+    const text = `親愛的朋友們~\n已下單【${currentOrderTitle.value}】名單如下哦!`
+    try {
+        if (window.liff && window.liff.isInClient()) {
+            const res = await window.liff.shareTargetPicker([{ type: 'text', text }])
+            if (res) alert('分享成功！請回到該群組查看訊息。')
+        } else {
+            await navigator.clipboard.writeText(text)
+            alert(`已複製分享文案：\n\n${text}`)
+        }
+    } catch (e) {
+        if (e?.code !== 'USER_CANCEL') console.error('分享失敗:', e)
+    }
+}
+
+const handleDeleteUserOrder = async (userName) => {
+    if (!confirm(`確定要刪除「${userName}」在此品項的訂單嗎？此操作無法復原！`)) return
+
+    try {
+        orderLoading.value = true
+        const result = await postGasData({
+            type: 'deluser',
+            userId: userId.value,
+            user: userName,
+            id: currentItemId.value,
+            name: currentOrderTitle.value
+        })
+
+        if (result && result[0] && result[0].status === 'success') {
+            alert(`${userName} 下單品項「${currentOrderTitle.value}」已刪除！`)
+            rawOrderList.value = rawOrderList.value.filter(item => {
+                const n = item.name || item.姓名 || item.名稱
+                return n !== userName
+            })
+        } else {
+            alert(result[0]?.alert || '刪除失敗，請稍後再試')
+        }
+    } catch (err) {
+        console.error(err)
+        alert('系統異常')
+    } finally {
+        orderLoading.value = false
+    }
+}
+
+const closeOrderModal = () => {
+    showOrderModal.value = false
+}
+
+// ==================== 卡片操作入口分流 ====================
 const handleAction = async (type, row) => {
     activeDropdownId.value = null
-    
-    if (type === 'view') {
+
+    // 1. 檢視訂單 (view) 或 管理訂單 (upd)
+    if (type === 'view' || type === 'upd') {
+        orderModalMode.value = type
+        orderSubTab.value = 'list'
+        isHistorySearchView.value = row.search === 'Y'
         currentOrderTitle.value = row.名稱
         currentItemId.value = row.ID
         showOrderModal.value = true
@@ -582,17 +1468,17 @@ const handleAction = async (type, row) => {
         rawOrderList.value = []
         orderTotal.value = 0
 
-        const payload = {
-            type: 'view',
-            userId: userId.value,
-            id: row.ID,
-            name: row.名稱,
-            flavor: row.口味 || '',
-            search: row.search || ''
-        }
+        const flavorCode = row.售價 === '---' ? 2 : 1
 
         try {
-            const result = await postGasData(payload)
+            const result = await postGasData({
+                type,
+                userId: userId.value,
+                id: row.ID,
+                name: row.名稱,
+                flavor: flavorCode,
+                search: row.search || ''
+            })
             if (result && result[0] && result[0].status === 'success') {
                 rawOrderList.value = result[0].orders || []
                 orderTotal.value = Number(result[0].total) || 0
@@ -608,18 +1494,37 @@ const handleAction = async (type, row) => {
         return
     }
 
-    let title = ''
-    if (type === 'chkout') title = '結單'
-    else if (type === 'delete') title = '刪除'
-    else if (type === 'stop') title = '延後'
-    else return
+    // 2. 開啟團購文案 (open -> cartModal)
+    if (type === 'open') {
+        openCartModal(row)
+        return
+    }
 
-    if (!confirm(`確定要${title}品項「${row.名稱}」嗎？`)) return
+    // 3. 編輯訂單 (edit -> editModal)
+    if (type === 'edit') {
+        openEditModal(row)
+        return
+    }
+
+    // 4. 代購訂單 (agent -> AgentModal)
+    if (type === 'agent') {
+        openAgentModal(row)
+        return
+    }
+
+    // 5. 結算 (chkout) / 刪除 (delete)
+    const title = type === 'chkout' ? '結單' : type === 'delete' ? '刪除' : ''
+    if (!title) return
+    if (!confirm(`你確定要${title}品項「${row.名稱}」嗎？此操作無法復原！`)) return
 
     try {
         loading.value = true
-        const payload = { type: type, userId: userId.value, id: row.ID, name: row.名稱 }
-        const result = await postGasData(payload)
+        const result = await postGasData({
+            type,
+            userId: userId.value,
+            id: row.ID,
+            name: row.名稱
+        })
         if (result && result[0] && result[0].status === 'success') {
             alert(`${title}成功！${result[0].alert || ''}`)
             await loadData()
@@ -634,40 +1539,67 @@ const handleAction = async (type, row) => {
     }
 }
 
-// 💡 刪除特定使用者下單品項
-const handleDeleteUserOrder = async (userName) => {
-    if (!confirm(`確定要刪除「${userName}」在此品項的訂單嗎？`)) return
+// ==================== 圖片上傳處理 (相容 GAS payload) ====================
+const handleImageUpload = (event, target) => {
+    const files = Array.from(event.target.files || [])
+    const targetList = target === 'add' ? newItemForm.images : editForm.images
 
-    const payload = {
-        type: 'deluser',
-        userId: userId.value,
-        user: userName,
-        id: currentItemId.value,
-        name: currentOrderTitle.value
+    if (targetList.length + files.length > 3) {
+        alert('最多只能上傳 3 張圖片')
+        event.target.value = ''
+        return
     }
 
-    try {
-        orderLoading.value = true
-        const result = await postGasData(payload)
-
-        if (result && result[0] && result[0].status === 'success') {
-            alert(`「${userName}」的下單品項已刪除！`)
-            rawOrderList.value = rawOrderList.value.filter(ord => {
-                const n = ord.名稱 || ord.姓名 || ord.使用者
-                return n !== userName
-            })
-        } else {
-            alert(result[0]?.alert || '刪除失敗，請稍後再試')
+    files.forEach(file => {
+        if (!['image/jpeg', 'image/png'].includes(file.type)) {
+            alert(`${file.name} 格式錯誤，只允許 JPG 或 PNG`)
+            return
         }
-    } catch (err) {
-        console.error(err)
-        alert('系統異常')
-    } finally {
-        orderLoading.value = false
-    }
+        if (file.size > 5 * 1024 * 1024) {
+            alert(`${file.name} 超過 5MB 限制`)
+            return
+        }
+
+        const reader = new FileReader()
+        reader.onload = (e) => {
+            targetList.push({
+                filename: file.name,
+                mimeType: file.type,
+                data: e.target.result,
+                previewUrl: e.target.result
+            })
+        }
+        reader.readAsDataURL(file)
+    })
+
+    event.target.value = ''
 }
 
-// 💡 新增團購項目 Modal 操作邏輯
+// ==================== MODAL 2: 新增團購項目 ====================
+const showAddItemModal = ref(false)
+const submittingItem = ref(false)
+const showMoreOptions = ref(false)
+const aiNameOptions = ref([])
+
+const newItemForm = reactive({
+    itemType: 'new',
+    selectedOldId: '',
+    name: '',
+    startDate: '',
+    endDate: '',
+    flavorType: 'single',
+    price: '',
+    singleLimit: 0,
+    flavors: [
+        { price: '', name: '', limit: 0 },
+        { price: '', name: '', limit: 0 }
+    ],
+    images: [],
+    scheduleType: '',
+    scheduleStartDate: '',
+    scheduleEndDate: ''
+})
+
 const openAddItemModal = () => {
     newItemForm.itemType = 'new'
     newItemForm.selectedOldId = ''
@@ -681,13 +1613,12 @@ const openAddItemModal = () => {
         { price: '', name: '', limit: 0 },
         { price: '', name: '', limit: 0 }
     ]
-    newItemForm.files = []
+    newItemForm.images = []
     newItemForm.scheduleType = ''
     newItemForm.scheduleStartDate = ''
     newItemForm.scheduleEndDate = ''
     showMoreOptions.value = false
     aiNameOptions.value = []
-    previewImages.value = []
     showAddItemModal.value = true
 }
 
@@ -701,7 +1632,6 @@ const handleItemTypeChange = () => {
     aiNameOptions.value = []
 }
 
-// 選擇舊品項時自動帶入價格與口味 (對應原本的 setItemData)
 const handleSelectOldItem = () => {
     const oldId = newItemForm.selectedOldId
     if (!oldId) return
@@ -726,39 +1656,13 @@ const handleSelectOldItem = () => {
     }
 }
 
-const addFlavorRow = () => {
-    newItemForm.flavors.push({ price: '', name: '', limit: 0 })
+const showAiDescription = () => {
+    alert('AI 命名助手：助手將會一次產生三組名稱，產生後點擊該名稱即可套用至品項名稱上！')
 }
 
-const removeFlavorRow = (index) => {
-    newItemForm.flavors.splice(index, 1)
-}
-
-// 圖片上傳與預覽處理
-const handleFileUpload = (event) => {
-    const files = Array.from(event.target.files || [])
-    files.forEach(file => {
-        newItemForm.files.push(file)
-        const reader = new FileReader()
-        reader.onload = (e) => {
-            previewImages.value.push({
-                name: file.name,
-                url: e.target.result
-            })
-        }
-        reader.readAsDataURL(file)
-    })
-}
-
-const removePreviewImage = (index) => {
-    previewImages.value.splice(index, 1)
-    newItemForm.files.splice(index, 1)
-}
-
-// AI 助手功能預留接口
 const handleAiHelp = async (mode) => {
     if (!newItemForm.name.trim()) {
-        alert('請先輸入關鍵字或品項名稱，再使用 AI 助手')
+        alert('請先輸入品項名稱！')
         return
     }
     try {
@@ -766,16 +1670,24 @@ const handleAiHelp = async (mode) => {
         const result = await postGasData({
             type: mode,
             userId: userId.value,
-            keyword: newItemForm.name
+            name: newItemForm.name.trim(),
+            price: '',
+            deadline: ''
         })
         if (result && result[0] && result[0].status === 'success') {
-            if (mode === 'ainame' && Array.isArray(result[0].options)) {
-                aiNameOptions.value = result[0].options
-            } else if (result[0].text) {
-                alert(result[0].text)
+            const rawText = result[0].text || ''
+            try {
+                const parsed = JSON.parse(rawText)
+                if (Array.isArray(parsed)) {
+                    aiNameOptions.value = parsed.map(s => String(s).trim())
+                    return
+                }
+            } catch {
+                // 若非 JSON 陣列則直接提示
             }
+            alert(rawText)
         } else {
-            alert(result[0]?.alert || 'AI 產生失敗')
+            alert(result[0]?.alert || '撰寫失敗，已達每月使用上限！')
         }
     } catch (err) {
         console.error(err)
@@ -785,61 +1697,87 @@ const handleAiHelp = async (mode) => {
     }
 }
 
-// 送出建立團購 (對應原本的 submitForm)
 const submitAddItem = async () => {
+    if (!userId.value) {
+        alert('⚠️ 尚未取得 userId')
+        return
+    }
     if (!newItemForm.name.trim()) {
-        alert('請輸入或選擇品項名稱')
+        alert('請填寫名稱')
         return
     }
 
+    if (newItemForm.scheduleType === 'group_time' && (!newItemForm.startDate || !newItemForm.endDate)) {
+        alert('請輸入團購期間！')
+        return
+    }
+    if (newItemForm.scheduleType === 'custom_time' && (!newItemForm.scheduleStartDate || !newItemForm.scheduleEndDate)) {
+        alert('請輸入自訂時間！')
+        return
+    }
+
+    const range =
+        newItemForm.startDate && newItemForm.endDate
+            ? `${newItemForm.startDate} 至 ${newItemForm.endDate}`
+            : ''
+
+    let flavorsPayload = []
+    let pricePayload = []
+
     if (newItemForm.flavorType === 'single') {
-        if (!newItemForm.price || Number(newItemForm.price) <= 0) {
-            alert('請輸入有效的價格')
+        const p = parseInt(newItemForm.price, 10)
+        const limitVal = parseInt(newItemForm.singleLimit, 10)
+        if (!p || p <= 0) {
+            alert('價格不能為 0 或小於 0')
             return
         }
-    } else {
-        const validFlavors = newItemForm.flavors.filter(f => f.name.trim() && Number(f.price) > 0)
-        if (validFlavors.length === 0) {
-            alert('請至少填寫一組有效的口味名稱與價格')
+        if (isNaN(limitVal) || limitVal < 0) {
+            alert('請輸入有效的限量')
             return
+        }
+        pricePayload.push(p)
+        flavorsPayload.push({ flavor: '', num: limitVal, price: p })
+    } else {
+        for (const row of newItemForm.flavors) {
+            const fName = row.name.trim()
+            const p = parseInt(row.price, 10)
+            const limitVal = parseInt(row.limit, 10)
+            if (!fName || isNaN(limitVal) || limitVal < 0 || !p || p <= 0) {
+                alert('請填寫所有口味與有效數量及價格')
+                return
+            }
+            pricePayload.push(p)
+            flavorsPayload.push({ flavor: fName, num: limitVal, price: p })
         }
     }
 
-    const payload = {
-        type: 'create', // 可依您原本 submitForm 送往 GAS 的 type 名稱微調
-        userId: userId.value,
-        itemType: newItemForm.itemType,
-        name: newItemForm.name.trim(),
-        startDate: newItemForm.startDate,
-        endDate: newItemForm.endDate,
-        flavorType: newItemForm.flavorType,
-        price: newItemForm.flavorType === 'single' ? Number(newItemForm.price) : 0,
-        limit: newItemForm.flavorType === 'single' ? Number(newItemForm.singleLimit || 0) : 0,
-        flavors: newItemForm.flavorType === 'multiple'
-            ? newItemForm.flavors
-                .filter(f => f.name.trim())
-                .map(f => ({
-                    price: Number(f.price),
-                    name: f.name.trim(),
-                    limit: Number(f.limit || 0)
-                }))
-            : [],
-        images: previewImages.value.map(img => img.url), // Base64 圖片資料
-        scheduleType: newItemForm.scheduleType,
-        scheduleStartDate: newItemForm.scheduleStartDate,
-        scheduleEndDate: newItemForm.scheduleEndDate
-    }
+    const filePayload = newItemForm.images.map(img => ({
+        filename: img.filename,
+        mimeType: img.mimeType,
+        data: img.data
+    }))
 
     try {
         submittingItem.value = true
-        const result = await postGasData(payload)
+        const result = await postGasData({
+            type: 'create',
+            userId: userId.value,
+            name: newItemForm.name.trim(),
+            range,
+            price: pricePayload,
+            flavors: flavorsPayload,
+            file: filePayload.length > 0 ? filePayload : '',
+            scheduleType: newItemForm.scheduleType,
+            scheduleStartDate: newItemForm.scheduleStartDate,
+            scheduleEndDate: newItemForm.scheduleEndDate
+        })
 
         if (result && result[0] && result[0].status === 'success') {
-            alert(result[0].alert || '團購建立成功！')
-            showAddItemModal.value = false
+            alert(`品項「${newItemForm.name.trim()}」已新增！`)
+            closeAddItemModal()
             await loadData()
         } else {
-            alert(result[0]?.alert || '建立失敗，請稍後再試')
+            alert(result[0]?.alert || '送出失敗，請稍後再試')
         }
     } catch (err) {
         console.error(err)
@@ -849,8 +1787,582 @@ const submitAddItem = async () => {
     }
 }
 
-const closeOrderModal = () => {
-    showOrderModal.value = false
+// ==================== MODAL 3: 維護 / 編輯團購項目 (#editModal) ====================
+const showEditModal = ref(false)
+const editForm = reactive({
+    id: '',
+    name: '',
+    flavorType: 'single',
+    editStartDate: '',
+    editEndDate: '',
+    editPrice: '',
+    editNum: 0,
+    flavors: [],
+    images: []
+})
+
+const openEditModal = async (row) => {
+    const validFlvs = getValidFlavors(row.ID)
+    editForm.id = row.ID
+    editForm.name = row.名稱
+    editForm.editStartDate = hasValidDeadline(row) ? row.限時開始 : ''
+    editForm.editEndDate = hasValidDeadline(row) ? row.限時結束 : ''
+
+    if (validFlvs.length > 0) {
+        editForm.flavorType = 'multiple'
+        editForm.flavors = validFlvs.map(f => ({
+            price: f.價格 || '',
+            name: f.口味 || '',
+            limit: f.限量 || 0
+        }))
+    } else {
+        editForm.flavorType = 'single'
+        editForm.editPrice = row.售價 !== '---' ? row.售價 : ''
+        editForm.editNum = getSingleItemLimit(row.ID) || 0
+    }
+
+    // 載入既有圖片 (Cloudinary)
+    const rawFlvRecord = flavors.value.find(f => String(f.品項ID || f.ID) === String(row.ID))
+    const imgStr = rawFlvRecord?.圖片 || ''
+    const imgBaseUrl = 'https://res.cloudinary.com/dwavqm0sh/image/upload/'
+
+    if (imgStr) {
+        editForm.images = imgStr
+            .split('|')
+            .filter(Boolean)
+            .map(filename => ({
+                filename,
+                mimeType: 'uploaded',
+                data: '',
+                previewUrl: imgBaseUrl + filename
+            }))
+    } else {
+        editForm.images = []
+    }
+
+    showEditModal.value = true
+
+    await nextTick()
+    if (editForm.editStartDate) {
+        pickerMap.get('editEndDate')?.set('minDate', editForm.editStartDate)
+    }
+}
+
+const submitEditItem = async () => {
+    const range =
+        editForm.editStartDate && editForm.editEndDate
+            ? `${editForm.editStartDate} 至 ${editForm.editEndDate}`
+            : ''
+
+    let flavorsPayload = []
+    let pricePayload = []
+
+    if (editForm.flavorType === 'multiple') {
+        for (const row of editForm.flavors) {
+            const fName = row.name.trim()
+            const p = parseInt(row.price, 10)
+            const limitVal = parseInt(row.limit, 10)
+            if (!fName || isNaN(limitVal) || limitVal < 0 || !p || p <= 0) {
+                alert('請填寫所有口味與有效數量及價格')
+                return
+            }
+            flavorsPayload.push({ flavor: fName, num: limitVal, price: p })
+            pricePayload.push(p)
+        }
+    } else {
+        const p = parseInt(editForm.editPrice, 10)
+        const limitVal = parseInt(editForm.editNum, 10) || 0
+        if (!p || p <= 0) {
+            alert('請輸入有效的價格')
+            return
+        }
+        flavorsPayload.push({ flavor: '', num: limitVal, price: p })
+        pricePayload.push(p)
+    }
+
+    const filePayload = editForm.images.map(img => ({
+        filename: img.filename,
+        mimeType: img.mimeType,
+        data: img.data
+    }))
+
+    try {
+        submittingItem.value = true
+        const result = await postGasData({
+            type: 'edit',
+            userId: userId.value,
+            id: editForm.id,
+            name: editForm.name,
+            flavors: flavorsPayload,
+            price: pricePayload,
+            range,
+            file: filePayload.length > 0 ? filePayload : ''
+        })
+
+        if (result && result[0] && result[0].status === 'success') {
+            alert('編輯成功！')
+            showEditModal.value = false
+            await loadData()
+        } else {
+            alert(result[0]?.alert || '編輯失敗，請稍後再試')
+        }
+    } catch (err) {
+        console.error(err)
+        alert('系統異常')
+    } finally {
+        submittingItem.value = false
+    }
+}
+
+// ==================== MODAL 4: 開啟團購文案 (#cartModal) ====================
+const showCartModal = ref(false)
+const cartTargetRow = ref(null)
+const cartContentText = ref('')
+const generatingAiCopy = ref(false)
+
+const buildItemPriceAndDeadline = (row) => {
+    let priceText = ''
+    const flvs = flavors.value.filter(val => String(val.品項ID) === String(row.ID))
+
+    if (flvs.length > 0) {
+        flvs.forEach((item, i) => {
+            if (row.售價 === '---') {
+                priceText += i === 0 ? `${item.價格}元/盒` : `、${item.價格}元/盒`
+                priceText += `(${item.口味}`
+                if (Number(item.限量) > 0) priceText += `，限量${item.限量}盒`
+                priceText += `)`
+            } else {
+                priceText += `${row.售價}元/個`
+                if (Number(item.限量) > 0) priceText += `(限量${item.限量}個)`
+            }
+        })
+    }
+
+    const deadlineText = hasValidDeadline(row) ? `${row.限時開始} ~ ${row.限時結束}` : ''
+    return { priceText, deadlineText }
+}
+
+const openCartModal = (row) => {
+    cartTargetRow.value = row
+    const { priceText, deadlineText } = buildItemPriceAndDeadline(row)
+
+    let text = `親愛的朋友們~\n開團【${row.名稱}】\n想吃的人客記得下單喔\n`
+    if (priceText) text += `價格：${priceText}\n`
+    if (deadlineText) text += `限時：${deadlineText}\n`
+    text += `下單後才會開始製作請耐心等待❤️`
+
+    cartContentText.value = text
+    showCartModal.value = true
+}
+
+const generateAiCartCopy = async () => {
+    if (!cartTargetRow.value) return
+    const row = cartTargetRow.value
+    const { priceText, deadlineText } = buildItemPriceAndDeadline(row)
+
+    try {
+        generatingAiCopy.value = true
+        const result = await postGasData({
+            type: 'aiwrite',
+            userId: userId.value,
+            id: row.ID,
+            name: row.名稱,
+            price: priceText,
+            deadline: deadlineText
+        })
+
+        if (result && result[0] && result[0].status === 'success') {
+            cartContentText.value = result[0].text || ''
+        } else {
+            alert(result[0]?.alert || '撰寫失敗，已達每月使用上限！')
+        }
+    } catch (err) {
+        console.error(err)
+        alert('AI 文案生成異常')
+    } finally {
+        generatingAiCopy.value = false
+    }
+}
+
+const copyCartText = async () => {
+    try {
+        await navigator.clipboard.writeText(cartContentText.value)
+        alert('已複製團購文案！')
+    } catch {
+        alert('複製失敗，請手動選取複製')
+    }
+}
+
+const shareCartToLine = async () => {
+    const text = cartContentText.value.trim()
+    if (!text) return
+
+    try {
+        if (window.liff && window.liff.isInClient()) {
+            const result = await window.liff.shareTargetPicker([{ type: 'text', text }])
+            if (result && result.status !== 'cancel') {
+                alert('開團成功！請回到分享該群組查看訊息哦！')
+                showCartModal.value = false
+            }
+        } else {
+            await navigator.clipboard.writeText(text)
+            alert(`已複製開團文案（非 LINE 內建瀏覽器環境）：\n\n${text}`)
+        }
+    } catch (e) {
+        if (e?.code !== 'USER_CANCEL') console.error('分享失敗:', e)
+    }
+}
+
+// ==================== MODAL 5: 代購訂單 (#AgentModal) ====================
+const showAgentModal = ref(false)
+const agentOldNames = ref([])
+const agentForm = reactive({
+    prdId: '',
+    prdName: '',
+    isMultiFlavor: false,
+    hasClosedHistory: false,
+    nameType: 'new',
+    rows: [{ name: '', flavor: '', qty: '' }]
+})
+
+const openAgentModal = (row) => {
+    const validFlvs = getValidFlavors(row.ID)
+    const closedSameItems = items.value.filter(
+        prd => prd.狀態 === '已結單' && prd.名稱 === row.名稱
+    )
+
+    agentForm.prdId = row.ID
+    agentForm.prdName = row.名稱
+    agentForm.isMultiFlavor = validFlvs.length > 0
+    agentForm.hasClosedHistory = closedSameItems.length > 0
+    agentForm.nameType = 'new'
+    agentForm.rows = [{ name: '', flavor: '', qty: '' }]
+    agentOldNames.value = []
+    showAgentModal.value = true
+}
+
+const handleAgentNameTypeChange = async () => {
+    agentForm.rows = [{ name: '', flavor: '', qty: '' }]
+
+    if (agentForm.nameType === 'old' && agentOldNames.value.length === 0) {
+        try {
+            submittingItem.value = true
+            const result = await postGasData({
+                type: 'aguser',
+                userId: userId.value,
+                name: agentForm.prdName
+            })
+            if (result && result[0] && result[0].status === 'success') {
+                const rawOrders = result[0].orders || {}
+                agentOldNames.value = [
+                    ...new Set(Object.values(rawOrders).flat().map(item => item.姓名).filter(Boolean))
+                ]
+            }
+        } catch (err) {
+            console.error(err)
+        } finally {
+            submittingItem.value = false
+        }
+    }
+}
+
+const submitAgentOrder = async () => {
+    const validRows = agentForm.rows.filter(r => r.name.trim() && Number(r.qty) > 0)
+    if (validRows.length === 0) {
+        alert('請填寫代訂姓名與有效數量')
+        return
+    }
+    if (agentForm.isMultiFlavor && validRows.some(r => !r.flavor)) {
+        alert('請為每筆代購選擇口味')
+        return
+    }
+
+    const agOrders = validRows.map(r => ({
+        orders: [{ flavor: agentForm.isMultiFlavor ? r.flavor : '', qty: r.qty }],
+        name: r.name.trim(),
+        id: r.name.trim(),
+        item: agentForm.prdName
+    }))
+
+    try {
+        submittingItem.value = true
+        const result = await postGasData({
+            type: 'agent',
+            userId: userId.value,
+            agOrders
+        })
+
+        if (result && result[0] && result[0].status === 'success') {
+            alert(`${result[0].alert || '代購成功'}！請到管理訂單查看訂單明細`)
+            showAgentModal.value = false
+            await loadData()
+        } else {
+            alert(result[0]?.alert || '代訂失敗，請稍後再試')
+        }
+    } catch (err) {
+        console.error(err)
+        alert('系統異常')
+    } finally {
+        submittingItem.value = false
+    }
+}
+
+// ==================== TAB 2 & MODAL 6: 歷史訂單查詢 ====================
+const showSearchModal = ref(false)
+const searchSubTab = ref('prd') // 'prd' | 'emp'
+const historyViewMode = ref('empty') // 'empty' | 'table' | 'chart'
+const historyTableRows = ref([])
+const historyResultTitle = ref('')
+const historyResultSubtitle = ref('')
+const historyChartSeries = ref([])
+const historyPriceSeries = ref([])
+
+const cachedSearchPrds = ref([])
+const cachedSearchFlvs = ref([])
+const cachedSearchEmps = ref([])
+
+const getMonthsAgoStr = (months) => {
+    const d = new Date()
+    d.setMonth(d.getMonth() - months)
+    const y = d.getFullYear()
+    const m = String(d.getMonth() + 1).padStart(2, '0')
+    const day = String(d.getDate()).padStart(2, '0')
+    return `${y}/${m}/${day}`
+}
+
+const getTodayStr = () => {
+    const d = new Date()
+    const y = d.getFullYear()
+    const m = String(d.getMonth() + 1).padStart(2, '0')
+    const day = String(d.getDate()).padStart(2, '0')
+    return `${y}/${m}/${day}`
+}
+
+const searchForm = reactive({
+    selectedPrd: '',
+    ordStartDate: getMonthsAgoStr(6),
+    ordEndDate: getTodayStr(),
+    selectedEmp: '',
+    prdStartDate: getMonthsAgoStr(3),
+    prdEndDate: getTodayStr()
+})
+
+const ensureHistoryCacheLoaded = async () => {
+    let prd = JSON.parse(localStorage.getItem('prd_list') || '[]')
+    let flv = JSON.parse(localStorage.getItem('flv_list') || '[]')
+    let emp = JSON.parse(localStorage.getItem('emp_list') || '[]')
+
+    if (prd.length === 0 && flv.length === 0 && emp.length === 0) {
+        try {
+            loading.value = true
+            const res = await postGasData({ type: 'search', userId: userId.value })
+            if (res && res[0] && res[0].status === 'success') {
+                const pData = res[0].data || {}
+                prd = pData['品項列表'] || []
+                flv = pData['口味列表'] || []
+                emp = pData['人員列表'] || []
+
+                localStorage.setItem('prd_list', JSON.stringify(prd))
+                localStorage.setItem('flv_list', JSON.stringify(flv))
+                localStorage.setItem('emp_list', JSON.stringify(emp))
+            }
+        } catch (err) {
+            console.error(err)
+            alert('歷史資料載入失敗')
+        } finally {
+            loading.value = false
+        }
+    }
+
+    cachedSearchPrds.value = prd
+    cachedSearchFlvs.value = flv
+    cachedSearchEmps.value = emp
+}
+
+const switchToHistoryTab = async () => {
+    activeMainTab.value = 'history'
+    await ensureHistoryCacheLoaded()
+}
+
+const openSearchModal = async () => {
+    await ensureHistoryCacheLoaded()
+    showSearchModal.value = true
+}
+
+const reloadHistoryCache = async () => {
+    localStorage.removeItem('prd_list')
+    localStorage.removeItem('flv_list')
+    localStorage.removeItem('emp_list')
+    await ensureHistoryCacheLoaded()
+    alert('歷史快取資料已重新同步！')
+}
+
+const searchPrdOptions = computed(() => {
+    const map = {}
+    cachedSearchPrds.value.forEach(item => {
+        if (!item.名稱) return
+        if (!map[item.名稱]) {
+            map[item.名稱] = {
+                name: item.名稱,
+                count: 0,
+                isMulti: item.售價 === '---'
+            }
+        }
+        map[item.名稱].count++
+    })
+    return Object.values(map)
+})
+
+const selectedSearchPrdCount = computed(() => {
+    const found = searchPrdOptions.value.find(p => p.name === searchForm.selectedPrd)
+    return found ? found.count : 0
+})
+
+const searchEmpOptions = computed(() => {
+    return [...new Set(cachedSearchEmps.value.map(item => item.姓名).filter(Boolean))]
+})
+
+const getHistoryRowFlavors = (itemId) => {
+    return cachedSearchFlvs.value.filter(flv => Number(flv.品項ID) === Number(itemId))
+}
+
+const barColors = ['#0284c7', '#059669', '#d97706', '#dc2626', '#7c3aed', '#0d9488']
+
+const executeOrderSearch = async () => {
+    if (!searchForm.selectedPrd) {
+        alert('請選擇要查詢的品項')
+        return
+    }
+
+    const filtered = cachedSearchPrds.value.filter(prd => {
+        if (prd.名稱 !== searchForm.selectedPrd) return false
+        if (selectedSearchPrdCount.value >= 3 && prd.開啟時間) {
+            const d = String(prd.開啟時間).substring(0, 10).replace(/-/g, '/')
+            return d >= searchForm.ordStartDate && d <= searchForm.ordEndDate
+        }
+        return true
+    })
+
+    historyResultTitle.value = `品項查詢：${searchForm.selectedPrd}`
+    historyResultSubtitle.value =
+        selectedSearchPrdCount.value >= 3
+            ? `${searchForm.ordStartDate} ~ ${searchForm.ordEndDate}`
+            : `共 ${filtered.length} 筆開團紀錄`
+
+    if (filtered.length < 3) {
+        historyTableRows.value = filtered
+        historyViewMode.value = 'table'
+        showSearchModal.value = false
+        return
+    }
+
+    // 3 筆以上：呼叫 chart API 呈現金額與價格趨勢
+    const sheetNames = filtered.map(prd => `${prd.ID}-${prd.名稱}`)
+    const ids = filtered.map(prd => prd.ID)
+    const hasMulti = filtered.some(i => i.售價 === '---')
+
+    try {
+        loading.value = true
+        const res = await postGasData({
+            type: 'chart',
+            userId: userId.value,
+            name: searchForm.selectedPrd,
+            ids,
+            sheets: sheetNames
+        })
+
+        if (!res || !res[0] || res[0].status !== 'success') {
+            alert('載入統計資料失敗')
+            return
+        }
+
+        const maxAmount = Math.max(...filtered.map(i => Number(i.訂單金額總計) || 0), 1)
+        historyChartSeries.value = filtered.map((item, idx) => {
+            const amt = Number(item.訂單金額總計) || 0
+            return {
+                label: `${String(item.開啟時間 || '').slice(5, 10)} 開團`,
+                displayValue: `$${amt.toLocaleString()}`,
+                percent: Math.round((amt / maxAmount) * 100),
+                color: barColors[idx % barColors.length]
+            }
+        })
+
+        if (!hasMulti) {
+            historyPriceSeries.value = filtered.map(item => ({
+                label: `${String(item.開啟時間 || '').slice(5, 10)} 開團`,
+                pricesText: `$${item.售價}`
+            }))
+        } else {
+            const flvData = res[0].data?.flv || {}
+            historyPriceSeries.value = filtered.map(item => {
+                const arr = flvData[item.ID] || []
+                const txt = arr.map(a => `${a[2]} $${a[4]}`).join('、') || '---'
+                return {
+                    label: `${String(item.開啟時間 || '').slice(5, 10)} 開團`,
+                    pricesText: txt
+                }
+            })
+        }
+
+        historyViewMode.value = 'chart'
+        showSearchModal.value = false
+    } catch (err) {
+        console.error(err)
+        alert('查詢統計異常')
+    } finally {
+        loading.value = false
+    }
+}
+
+const executeEmpSearch = async () => {
+    if (!searchForm.selectedEmp) {
+        alert('請選擇人員')
+        return
+    }
+
+    const rangePrds = cachedSearchPrds.value.filter(prd => {
+        if (!prd.開啟時間) return false
+        const d = String(prd.開啟時間).substring(0, 10).replace(/-/g, '/')
+        return d >= searchForm.prdStartDate && d <= searchForm.prdEndDate
+    })
+
+    const sheetNames = rangePrds.map(prd => `${prd.ID}-${prd.名稱}`)
+
+    try {
+        loading.value = true
+        const res = await postGasData({
+            type: 'chart',
+            userId: userId.value,
+            emp: searchForm.selectedEmp,
+            sheets: sheetNames
+        })
+
+        if (!res || !res[0] || res[0].status !== 'success') {
+            alert('載入失敗，尚未有該人員購買紀錄！')
+            return
+        }
+
+        const list = res[0].data || []
+        const maxPrice = Math.max(...list.map(r => Number(r.price) || 0), 1)
+
+        historyResultTitle.value = `人員購買紀錄：${searchForm.selectedEmp}`
+        historyResultSubtitle.value = `${searchForm.prdStartDate} ~ ${searchForm.prdEndDate}`
+        historyPriceSeries.value = []
+        historyChartSeries.value = list.map((r, idx) => ({
+            label: `${r.item} (${r.nums} 份)`,
+            displayValue: `$${Number(r.price || 0).toLocaleString()}`,
+            percent: Math.round(((Number(r.price) || 0) / maxPrice) * 100),
+            color: barColors[idx % barColors.length]
+        }))
+
+        historyViewMode.value = 'chart'
+        showSearchModal.value = false
+    } catch (err) {
+        console.error(err)
+        alert('查詢人員購買紀錄異常')
+    } finally {
+        loading.value = false
+    }
 }
 
 onMounted(() => {
@@ -861,7 +2373,6 @@ onMounted(() => {
         localStorage.setItem('cached_userId', paramUserId)
     }
 
-    console.log("目前使用的 userId:", userId.value)
     loadData()
     window.addEventListener('click', closeDropdowns)
 })
@@ -875,9 +2386,39 @@ onUnmounted(() => {
 .modern-dashboard {
     max-width: 600px;
     margin: 0 auto;
-    padding: 4px;
+    padding: 6px;
     font-family: system-ui, -apple-system, sans-serif;
     background-color: #f8fafc;
+    min-height: 100vh;
+}
+
+/* 頂部主分頁切換 */
+.main-nav-tabs {
+    display: flex;
+    gap: 6px;
+    background: #e2e8f0;
+    padding: 4px;
+    border-radius: 10px;
+    margin-bottom: 8px;
+}
+
+.main-tab-btn {
+    flex: 1;
+    border: none;
+    background: transparent;
+    padding: 7px 10px;
+    border-radius: 7px;
+    font-size: 0.88rem;
+    font-weight: 700;
+    color: #475569;
+    cursor: pointer;
+    transition: all 0.15s ease;
+}
+
+.main-tab-btn.active {
+    background: #ffffff;
+    color: #0f172a;
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
 }
 
 /* 頂部操作列 */
@@ -917,13 +2458,13 @@ onUnmounted(() => {
 .card-list {
     display: flex;
     flex-direction: column;
-    gap: 4px;
+    gap: 5px;
 }
 
 .item-card-compact {
     background: #ffffff;
     border-radius: 8px;
-    padding: 6px 10px;
+    padding: 7px 10px;
     box-shadow: 0 1px 2px rgba(0, 0, 0, 0.04);
     border: 1px solid #f1f5f9;
 }
@@ -932,11 +2473,11 @@ onUnmounted(() => {
     display: flex;
     justify-content: space-between;
     align-items: center;
-    margin-bottom: 2px;
+    margin-bottom: 3px;
 }
 
 .card-line-title {
-    margin-bottom: 3px;
+    margin-bottom: 4px;
 }
 
 .item-title {
@@ -945,7 +2486,7 @@ onUnmounted(() => {
     color: #0f172a;
     font-weight: 700;
     word-break: break-all;
-    line-height: 1.2;
+    line-height: 1.25;
 }
 
 .amount-display {
@@ -957,7 +2498,7 @@ onUnmounted(() => {
 .total-highlight, .addition-highlight {
     font-size: 0.75rem;
     font-weight: 700;
-    padding: 1px 5px;
+    padding: 1px 6px;
     border-radius: 4px;
     white-space: nowrap;
 }
@@ -966,9 +2507,9 @@ onUnmounted(() => {
 .addition-highlight { color: #d97706; background: #fef3c7; }
 
 .status-pill {
-    padding: 1px 5px;
+    padding: 1px 6px;
     border-radius: 6px;
-    font-size: 0.7rem;
+    font-size: 0.72rem;
     font-weight: 600;
     white-space: nowrap;
 }
@@ -978,7 +2519,7 @@ onUnmounted(() => {
 .status-default { background-color: #f1f5f9; color: #475569; }
 
 .card-line-info {
-    margin-bottom: 3px;
+    margin-bottom: 4px;
     font-size: 0.8rem;
 }
 
@@ -1008,7 +2549,7 @@ onUnmounted(() => {
 
 .flavor-mini-tag {
     background: #f1f5f9;
-    padding: 1px 5px;
+    padding: 1px 6px;
     border-radius: 4px;
     font-size: 0.75rem;
     color: #334155;
@@ -1019,14 +2560,14 @@ onUnmounted(() => {
 .limit-badge, .time-badge {
     background: #fef3c7;
     color: #d97706;
-    font-size: 0.7rem;
-    padding: 0 4px;
+    font-size: 0.72rem;
+    padding: 1px 5px;
     border-radius: 4px;
     font-weight: 500;
 }
 
 .card-line-details {
-    margin-bottom: 2px;
+    margin-bottom: 3px;
     font-size: 0.75rem;
 }
 
@@ -1034,18 +2575,18 @@ onUnmounted(() => {
 
 .card-line-footer {
     display: flex;
-    gap: 4px;
-    padding-top: 4px;
+    gap: 5px;
+    padding-top: 5px;
     border-top: 1px dashed #f1f5f9;
     position: relative;
     align-items: center;
 }
 
 .action-btn {
-    padding: 4px 8px;
-    border-radius: 5px;
+    padding: 5px 8px;
+    border-radius: 6px;
     border: none;
-    font-size: 0.75rem;
+    font-size: 0.78rem;
     font-weight: 600;
     cursor: pointer;
     text-align: center;
@@ -1061,40 +2602,106 @@ onUnmounted(() => {
 
 .btn-primary-soft { background-color: #eff6ff; color: #1d4ed8; flex: 1; }
 .btn-success-soft { background-color: #f0fdf4; color: #15803d; flex: 1; }
-.btn-more { background-color: #f1f5f9; color: #475569; flex: 0.7; }
+.btn-more { background-color: #f1f5f9; color: #475569; width: 100%; }
+
+.btn-primary-solid { background-color: #2563eb; color: #ffffff; }
+.btn-warning-solid { background-color: #d97706; color: #ffffff; }
+.btn-danger-solid { background-color: #dc2626; color: #ffffff; }
 
 .dropdown-wrapper {
     position: relative;
     display: inline-block;
-    flex: 0.7;
+    flex: 0.75;
 }
 
 .dropdown-menu-modern {
     position: absolute;
     right: 0;
-    bottom: 110%;
+    bottom: 115%;
     background: #ffffff;
-    border-radius: 6px;
-    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+    border-radius: 8px;
+    box-shadow: 0 4px 14px rgba(0, 0, 0, 0.14);
     list-style: none;
     padding: 4px 0;
     margin: 0;
-    min-width: 100px;
+    min-width: 112px;
     z-index: 30;
     border: 1px solid #e2e8f0;
 }
 
 .dropdown-menu-modern li a {
     display: block;
-    padding: 5px 10px;
+    padding: 7px 12px;
     color: #334155;
     text-decoration: none;
-    font-size: 0.75rem;
+    font-size: 0.8rem;
+    font-weight: 500;
+}
+
+.dropdown-menu-modern li a:hover {
+    background-color: #f8fafc;
 }
 
 .text-danger { color: #dc2626 !important; }
 .text-muted { color: #64748b; }
 .text-xs { font-size: 0.75rem; }
+
+/* 歷史查詢圖表與摘要 */
+.history-summary-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    background: #ffffff;
+    padding: 8px 10px;
+    border-radius: 8px;
+    border: 1px solid #e2e8f0;
+    margin-bottom: 6px;
+    font-size: 0.88rem;
+    color: #0f172a;
+}
+
+.chart-section-title {
+    margin: 0 0 8px 0;
+    font-size: 0.9rem;
+    color: #1e293b;
+}
+
+.chart-bar-item {
+    margin-bottom: 8px;
+}
+
+.chart-bar-label {
+    display: flex;
+    justify-content: space-between;
+    font-size: 0.8rem;
+    color: #334155;
+    margin-bottom: 3px;
+}
+
+.chart-bar-track {
+    width: 100%;
+    height: 10px;
+    background: #e2e8f0;
+    border-radius: 999px;
+    overflow: hidden;
+}
+
+.chart-bar-fill {
+    height: 100%;
+    border-radius: 999px;
+    transition: width 0.3s ease;
+}
+
+.price-trend-row {
+    display: flex;
+    justify-content: space-between;
+    padding: 5px 0;
+    border-bottom: 1px dashed #e2e8f0;
+    font-size: 0.8rem;
+}
+
+.trend-name { color: #475569; font-weight: 600; }
+.trend-values { color: #059669; font-weight: 700; }
 
 /* 📱 底部滑出抽屜 (Bottom Sheet) 樣式 */
 .modal-backdrop {
@@ -1150,7 +2757,7 @@ onUnmounted(() => {
 
 .modal-header h3 {
     margin: 0;
-    font-size: 1.15rem;
+    font-size: 1.1rem;
     color: #1e293b;
 }
 
@@ -1168,18 +2775,43 @@ onUnmounted(() => {
     justify-content: center;
 }
 
+/* Modal 內部子分頁 */
+.sub-tabs-bar {
+    display: flex;
+    border-bottom: 1px solid #e2e8f0;
+    background: #f8fafc;
+}
+
+.sub-tab-btn {
+    flex: 1;
+    border: none;
+    background: transparent;
+    padding: 9px;
+    font-size: 0.88rem;
+    font-weight: 700;
+    color: #64748b;
+    cursor: pointer;
+    border-bottom: 2px solid transparent;
+}
+
+.sub-tab-btn.active {
+    color: #16a34a;
+    border-bottom-color: #16a34a;
+    background: #ffffff;
+}
+
 /* 📊 頂部總量統計儀表板 */
 .summary-banner {
     background: #f0fdf4;
     border-bottom: 1px solid #dcfce7;
-    padding: 12px 16px;
+    padding: 10px 16px;
     display: flex;
     flex-direction: column;
     gap: 6px;
 }
 
 .summary-banner-title {
-    font-size: 0.9rem;
+    font-size: 0.88rem;
     font-weight: 700;
     color: #166534;
 }
@@ -1188,7 +2820,7 @@ onUnmounted(() => {
     display: flex;
     flex-wrap: wrap;
     gap: 8px;
-    font-size: 1.05rem;
+    font-size: 1rem;
     color: #14532d;
     font-weight: 600;
 }
@@ -1202,28 +2834,28 @@ onUnmounted(() => {
 .summary-flavor-badge {
     background: #ffffff;
     border: 1px solid #bbf7d0;
-    padding: 4px 10px;
+    padding: 3px 9px;
     border-radius: 6px;
-    font-size: 0.95rem;
+    font-size: 0.9rem;
 }
 
 .summary-q-num, .summary-total-num {
     color: #059669;
-    font-size: 1.15rem;
+    font-size: 1.1rem;
     font-weight: 800;
 }
 
 .modal-body {
     padding: 14px 16px;
     overflow-y: auto;
-    max-height: 68vh;
+    max-height: 66vh;
 }
 
-/* 新增團購表單專屬樣式 */
+/* 表單樣式 */
 .form-body {
     display: flex;
     flex-direction: column;
-    gap: 14px;
+    gap: 13px;
 }
 
 .form-group {
@@ -1259,7 +2891,7 @@ onUnmounted(() => {
     display: flex;
     align-items: center;
     gap: 4px;
-    font-size: 0.9rem !important;
+    font-size: 0.88rem !important;
     font-weight: 500 !important;
     color: #475569 !important;
     cursor: pointer;
@@ -1306,6 +2938,18 @@ onUnmounted(() => {
     border-radius: 10px;
 }
 
+.info-alert-box {
+    background: #eff6ff;
+    border: 1px solid #bfdbfe;
+    color: #1e40af;
+    padding: 10px;
+    border-radius: 8px;
+    font-size: 0.8rem;
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+}
+
 .hint-text {
     font-size: 0.75rem;
     font-weight: 500;
@@ -1328,8 +2972,56 @@ onUnmounted(() => {
     color: #1e293b;
 }
 
+.input-disabled {
+    background-color: #f1f5f9;
+    color: #64748b;
+}
+
+.datepickr {
+    background-color: #ffffff;
+    cursor: pointer;
+}
+
+.textarea-copy {
+    line-height: 1.5;
+    resize: vertical;
+}
+
+.btn-ai-banner {
+    width: 100%;
+    background: #2563eb;
+    color: #ffffff;
+    border: none;
+    padding: 9px;
+    border-radius: 8px;
+    font-size: 0.92rem;
+    font-weight: 700;
+    cursor: pointer;
+}
+
+.beta-badge {
+    background: #dc2626;
+    color: #ffffff;
+    font-size: 0.7rem;
+    padding: 1px 6px;
+    border-radius: 999px;
+    margin-left: 4px;
+}
+
+.btn-copy-small {
+    background: #f1f5f9;
+    border: 1px solid #cbd5e1;
+    border-radius: 6px;
+    padding: 3px 8px;
+    font-size: 0.75rem;
+    color: #334155;
+    cursor: pointer;
+}
+
 .w-100 { width: 100%; box-sizing: border-box; }
+.mt-1 { margin-top: 4px; }
 .mt-2 { margin-top: 8px; }
+.px-0 { padding-left: 0 !important; padding-right: 0 !important; }
 
 .form-row {
     display: flex;
@@ -1439,14 +3131,14 @@ onUnmounted(() => {
 .order-items-list {
     display: flex;
     flex-direction: column;
-    gap: 10px;
+    gap: 8px;
 }
 
 .order-card-row {
     display: flex;
     justify-content: space-between;
     align-items: center;
-    padding: 12px 14px;
+    padding: 10px 12px;
     background: #f8fafc;
     border-radius: 10px;
     border: 1px solid #e2e8f0;
@@ -1455,7 +3147,7 @@ onUnmounted(() => {
 .ord-left {
     display: flex;
     flex-direction: column;
-    gap: 6px;
+    gap: 5px;
     flex: 1;
 }
 
@@ -1466,13 +3158,13 @@ onUnmounted(() => {
 }
 
 .ord-name {
-    font-size: 1.05rem;
+    font-size: 1rem;
     font-weight: 700;
     color: #1e293b;
 }
 
 .append-tag {
-    font-size: 0.75rem;
+    font-size: 0.72rem;
     font-weight: 700;
     color: #d97706;
     background: #fef3c7;
@@ -1491,23 +3183,23 @@ onUnmounted(() => {
     border: 1px solid #cbd5e1;
     padding: 2px 8px;
     border-radius: 6px;
-    font-size: 0.85rem;
+    font-size: 0.82rem;
     color: #334155;
 }
 
 .q-num {
     color: #059669;
-    font-size: 0.9rem;
+    font-size: 0.88rem;
 }
 
 .ord-right {
     display: flex;
     align-items: center;
-    gap: 10px;
+    gap: 8px;
 }
 
 .ord-single-qty {
-    font-size: 0.95rem;
+    font-size: 0.9rem;
     font-weight: 700;
     color: #0284c7;
     background: #e0f2fe;
@@ -1516,7 +3208,7 @@ onUnmounted(() => {
 }
 
 .ord-subtotal {
-    font-size: 1.05rem;
+    font-size: 1rem;
     font-weight: 700;
     color: #059669;
 }
@@ -1536,11 +3228,29 @@ onUnmounted(() => {
     display: flex;
     justify-content: flex-end;
     align-items: center;
-    padding: 14px 16px;
+    padding: 12px 16px;
     border-top: 1px solid #f1f5f9;
     background: #f8fafc;
     border-bottom-left-radius: 20px;
     border-bottom-right-radius: 20px;
+}
+
+.modal-footer-column {
+    flex-direction: column;
+    gap: 8px;
+}
+
+.footer-total-row {
+    width: 100%;
+    display: flex;
+    justify-content: flex-end;
+    align-items: center;
+}
+
+.footer-action-row {
+    width: 100%;
+    display: flex;
+    gap: 8px;
 }
 
 .btn-submit-item {
@@ -1550,7 +3260,7 @@ onUnmounted(() => {
     border: none;
     padding: 10px;
     border-radius: 8px;
-    font-size: 1rem;
+    font-size: 0.98rem;
     font-weight: 700;
     cursor: pointer;
     text-align: center;
@@ -1561,22 +3271,22 @@ onUnmounted(() => {
 }
 
 .total-label {
-    font-size: 1rem;
+    font-size: 0.95rem;
     color: #334155;
 }
 
 .total-value {
-    font-size: 1.25rem;
+    font-size: 1.2rem;
     font-weight: 700;
     color: #dc2626;
-    margin-left: 8px;
+    margin-left: 6px;
 }
 
 .pagination-modern {
     display: flex;
     justify-content: space-between;
     align-items: center;
-    margin-top: 6px;
+    margin-top: 8px;
     padding: 0 2px;
 }
 
@@ -1592,5 +3302,12 @@ onUnmounted(() => {
 
 .page-btn:disabled { opacity: 0.4; cursor: not-allowed; }
 .page-info { font-size: 0.8rem; color: #64748b; }
-.loading-state { text-align: center; padding: 20px; color: #64748b; }
+.loading-state, .empty-state { text-align: center; padding: 24px 12px; color: #64748b; font-size: 0.9rem; }
+</style>
+
+<!-- 確保 flatpickr 日曆彈窗蓋在 bottom-sheet-modal (z-index: 1000) 之上 -->
+<style>
+.flatpickr-calendar {
+    z-index: 1100 !important;
+}
 </style>
