@@ -1,5 +1,9 @@
 <template>
-    <div id="app" class="app-container">
+    <!-- 買家下單畫面：網址帶 ?name=... 時顯示，獨立於主揪後台與底部導覽列 -->
+    <CustomerOrder v-if="isCustomerOrderPage" />
+
+    <!-- 主揪管理後台 -->
+    <div v-else id="app" class="app-container">
         <!-- 載入中遮罩 (Mask) -->
         <div v-if="globalMask" class="global-mask">
             <div class="spinner"></div>
@@ -26,17 +30,26 @@
 </template>
 
 <script setup>
-import { ref, onMounted } from 'vue'
+import { ref, computed, onMounted } from 'vue'
 import ItemTable from './components/ItemTable.vue'
 import FormulaTab from './components/FormulaTab.vue'
 import ScheduleTab from './components/ScheduleTab.vue'
 import BottomNav from './components/BottomNav.vue'
+import CustomerOrder from './components/CustomerOrder.vue'
+
+const MANAGER_LIFF_ID = '2007457926-6GlfMVC3'
 
 const globalMask = ref(false)
 const userName = ref('')
 const userId = ref('')
 const liffReady = ref(false)
 const currentTab = ref('orders') // 'orders' | 'formula' | 'schedule'
+
+// 檢查網址是否帶有 ?name= 參數，決定是否走買家下單畫面
+const isCustomerOrderPage = computed(() => {
+    const params = new URLSearchParams(window.location.search)
+    return Boolean((params.get('name') || '').trim())
+})
 
 // 檢查 LocalStorage 快取的驗證函式 (對應您原本的邏輯)
 const isUserAuthenticated = (uid) => {
@@ -62,6 +75,11 @@ const isLocalhost = () => {
 }
 
 onMounted(async () => {
+    // 買家下單頁由 CustomerOrder.vue 自行處理該頁 LIFF 與 ?name= 登入跳轉
+    if (isCustomerOrderPage.value) {
+        return
+    }
+
     try {
         globalMask.value = true
 
@@ -72,9 +90,9 @@ onMounted(async () => {
             localStorage.getItem('cached_userId') ||
             ''
 
-        // 1. 初始化 LIFF (請替換為您的 LIFF ID)
+        // 1. 初始化 LIFF
         if (window.liff && !isLocalhost()) {
-            await window.liff.init({ liffId: '2007457926-5wAYNP0w' }) // 依原本 formula.html / schedule.html 設定，可自行替換
+            await window.liff.init({ liffId: MANAGER_LIFF_ID })
 
             if (!window.liff.isLoggedIn()) {
                 window.liff.login()
