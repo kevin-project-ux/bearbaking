@@ -13,19 +13,30 @@
 
         <!-- 主畫面元件：等身分準備完成後再掛載並傳入 userId -->
         <main class="app-content">
-            <ItemTable v-if="liffReady" :user-id="userId" />
+            <template v-if="liffReady">
+                <ItemTable v-show="currentTab === 'orders'" :user-id="userId" />
+                <FormulaTab v-if="currentTab === 'formula'" :user-id="userId" />
+                <ScheduleTab v-if="currentTab === 'schedule'" :user-id="userId" />
+            </template>
         </main>
+
+        <!-- 底部導覽列 -->
+        <BottomNav v-if="liffReady" v-model="currentTab" />
     </div>
 </template>
 
 <script setup>
 import { ref, onMounted } from 'vue'
 import ItemTable from './components/ItemTable.vue'
+import FormulaTab from './components/FormulaTab.vue'
+import ScheduleTab from './components/ScheduleTab.vue'
+import BottomNav from './components/BottomNav.vue'
 
 const globalMask = ref(false)
 const userName = ref('')
 const userId = ref('')
 const liffReady = ref(false)
+const currentTab = ref('orders') // 'orders' | 'formula' | 'schedule'
 
 // 檢查 LocalStorage 快取的驗證函式 (對應您原本的邏輯)
 const isUserAuthenticated = (uid) => {
@@ -63,7 +74,7 @@ onMounted(async () => {
 
         // 1. 初始化 LIFF (請替換為您的 LIFF ID)
         if (window.liff && !isLocalhost()) {
-            await window.liff.init({ liffId: '2007457926-6GlfMVC3' })
+            await window.liff.init({ liffId: '2007457926-5wAYNP0w' }) // 依原本 formula.html / schedule.html 設定，可自行替換
 
             if (!window.liff.isLoggedIn()) {
                 window.liff.login()
@@ -86,7 +97,7 @@ onMounted(async () => {
             }
         } else {
             console.warn('LIFF SDK 未載入或處於本機開發環境，使用測試/快取身分')
-            const devUserId = fallbackUserId || 'TEST'
+            const devUserId = fallbackUserId || 'Ua498c406bab8b3ace091a09064047e1d'
             userId.value = devUserId
             userName.value = '測試管理員'
             window.userId = devUserId
@@ -144,6 +155,7 @@ body {
 
 .app-content {
     flex: 1;
+    padding-bottom: 72px; /* 預留底部導覽列高度，避免遮住內容 */
 }
 
 /* 全域遮罩樣式 */

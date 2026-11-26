@@ -231,15 +231,22 @@
                                     class="flavor-mini-tag"
                                 >
                                     {{ flv.口味 }} <b class="text-emerald">${{ flv.價格 }}</b>
+                                    <span v-if="Number(flv.限量) > 0" class="text-muted"> (限{{ flv.限量 }})</span>
                                 </span>
                             </div>
                         </div>
                         <div class="card-line-footer">
                             <button
-                                class="action-btn btn-view-full"
+                                class="action-btn btn-view-half"
                                 @click="handleAction('view', { ...hRow, search: 'Y' })"
                             >
-                                👁️ 檢視當時訂單明細
+                                👁️ 檢視訂單明細
+                            </button>
+                            <button
+                                class="action-btn btn-reopen-half"
+                                @click="reopenFromHistory(hRow)"
+                            >
+                                🔁 再以此設定開團
                             </button>
                         </div>
                     </div>
@@ -264,10 +271,20 @@
                     </div>
 
                     <div class="box-panel mt-2" v-if="historyPriceSeries.length > 0">
-                        <h4 class="chart-section-title">💰 歷次售價趨勢</h4>
+                        <h4 class="chart-section-title">💰 歷次售價趨勢（點擊可直接套用設定開團）</h4>
                         <div v-for="(pItem, idx) in historyPriceSeries" :key="idx" class="price-trend-row">
-                            <span class="trend-name">{{ pItem.label }}</span>
-                            <span class="trend-values">{{ pItem.pricesText }}</span>
+                            <div class="trend-left-info">
+                                <span class="trend-name">{{ pItem.label }}</span>
+                                <span class="trend-values">{{ pItem.pricesText }}</span>
+                            </div>
+                            <button
+                                v-if="pItem.sourceRow"
+                                type="button"
+                                class="btn-reopen-mini"
+                                @click="reopenFromHistory(pItem.sourceRow)"
+                            >
+                                🔁 再以此開團
+                            </button>
                         </div>
                     </div>
                 </div>
@@ -1110,6 +1127,7 @@
 
 <script setup>
 import { ref, computed, reactive, watch, onMounted, onUnmounted, nextTick } from 'vue'
+import Swal from 'sweetalert2'
 import flatpickr from 'flatpickr'
 import 'flatpickr/dist/flatpickr.min.css'
 import { MandarinTraditional } from 'flatpickr/dist/l10n/zh-tw.js'
@@ -1123,6 +1141,52 @@ const props = defineProps({
 })
 
 const CLOUDINARY_BASE_URL = 'https://res.cloudinary.com/dwavqm0sh/image/upload/'
+
+// ==================== SweetAlert2 輔助函式 ====================
+const showSwalSuccess = (title, text = '') => {
+    return Swal.fire({
+        icon: 'success',
+        title,
+        text: text || undefined,
+        confirmButtonText: '確定',
+        confirmButtonColor: '#16a34a'
+    })
+}
+
+const showSwalError = (title, text = '') => {
+    return Swal.fire({
+        icon: 'error',
+        title,
+        text: text || undefined,
+        confirmButtonText: '確定',
+        confirmButtonColor: '#dc2626'
+    })
+}
+
+const showSwalInfo = (title, text = '') => {
+    return Swal.fire({
+        icon: 'info',
+        title,
+        text: text || undefined,
+        confirmButtonText: '確定',
+        confirmButtonColor: '#2563eb'
+    })
+}
+
+const showSwalConfirm = async (title, text = '此操作無法復原！', confirmText = '確定') => {
+    const result = await Swal.fire({
+        icon: 'warning',
+        title,
+        text,
+        showCancelButton: true,
+        confirmButtonText: confirmText,
+        cancelButtonText: '取消',
+        confirmButtonColor: '#dc2626',
+        cancelButtonColor: '#64748b',
+        reverseButtons: true
+    })
+    return Boolean(result.isConfirmed)
+}
 
 const items = ref([])
 const flavors = ref([])
@@ -1246,7 +1310,7 @@ const loadData = async () => {
         currentPage.value = 1
     } catch (error) {
         console.error(error)
-        alert('資料載入失敗，請稍後再試')
+        await showSwalError('資料載入失敗', '請稍後再試')
     } finally {
         loading.value = false
     }
@@ -1271,7 +1335,6 @@ const getRawImageByItemId = (itemId) => {
     return recs.map(r => r.圖片).find(img => img && String(img).trim() !== '') || ''
 }
 
-// 取得品項圖片網址：若指定 itemId 的圖片欄位為空，則比對相同品項名稱的其他紀錄帶入
 const getItemImageUrls = (itemId, itemName = '') => {
     const directRaw = getRawImageByItemId(itemId)
     if (directRaw) {
@@ -1295,7 +1358,6 @@ const getItemImageUrls = (itemId, itemName = '') => {
     return []
 }
 
-// 剩餘數量格式化：負數顯示「多 X」、0 顯示「完售」、正數顯示「剩 X」
 const formatRemainingText = (remain) => {
     const num = Number(remain) || 0
     if (num < 0) return `多 ${Math.abs(num)}`
@@ -1317,9 +1379,6 @@ const getSingleItemLimit = (itemId) => {
     return 0
 }
 
-// 外面列表單口味算式：
-// 有追加情況：限量 - (追加 / 售價)
-// 沒有追加情況：限量 - (總計 / 售價)
 const getSingleRemaining = (row) => {
     const limit = getSingleItemLimit(row.ID)
     if (!limit) return 0
@@ -1336,9 +1395,6 @@ const getSingleRemaining = (row) => {
     return limit - estimatedQty
 }
 
-// 外面列表多口味算式：
-// 有追加情況：依「追加金額總計」反推該口味份數後算 限量 - 份數
-// 沒有追加情況：依「訂單金額總計」反推該口味份數後算 限量 - 份數
 const getFlavorRemaining = (row, flv) => {
     const limit = Number(flv.限量) || 0
     if (!limit) return 0
@@ -1551,9 +1607,9 @@ const copyOrderSummaryAndList = async () => {
     const output = lines.join('\n')
     try {
         await navigator.clipboard.writeText(output)
-        alert('已複製統計與下單名單！')
+        await showSwalSuccess('已複製統計與下單名單！')
     } catch {
-        alert(`複製失敗，請手動複製：\n\n${output}`)
+        await showSwalInfo('複製失敗，請手動複製', output)
     }
 }
 
@@ -1565,11 +1621,11 @@ const switchToAppendTab = () => {
 const submitAppendOrder = async () => {
     const validRows = appendRows.value.filter(r => r.name.trim() && Number(r.qty) > 0)
     if (validRows.length === 0) {
-        alert('請填寫追加姓名與有效數量')
+        await showSwalInfo('請填寫追加姓名與有效數量')
         return
     }
     if (isCurrentItemMultiFlavor.value && validRows.some(r => !r.flavor)) {
-        alert('請為每筆追加名單選擇口味')
+        await showSwalInfo('請為每筆追加名單選擇口味')
         return
     }
 
@@ -1591,15 +1647,15 @@ const submitAppendOrder = async () => {
         })
 
         if (result && result[0] && result[0].status === 'success') {
-            alert('追加成功！')
+            await showSwalSuccess('追加成功！')
             showOrderModal.value = false
             await loadData()
         } else {
-            alert(result[0]?.alert || '追加失敗，請稍後再試')
+            await showSwalError('追加失敗', result[0]?.alert || '請稍後再試')
         }
     } catch (err) {
         console.error(err)
-        alert('系統異常')
+        await showSwalError('系統異常')
     } finally {
         submittingItem.value = false
     }
@@ -1607,7 +1663,12 @@ const submitAppendOrder = async () => {
 
 const handleOrderStatusAction = async (type) => {
     const labelMap = { stop: '延後該品項', delapd: '刪除追加訂單' }
-    if (!confirm(`確定要${labelMap[type] || '執行此操作'}「${currentOrderTitle.value}」嗎？此操作無法復原！`)) return
+    const confirmed = await showSwalConfirm(
+        `確定要${labelMap[type] || '執行此操作'}「${currentOrderTitle.value}」嗎？`,
+        '此操作無法復原！',
+        '確定執行'
+    )
+    if (!confirmed) return
 
     try {
         orderLoading.value = true
@@ -1619,15 +1680,15 @@ const handleOrderStatusAction = async (type) => {
         })
 
         if (result && result[0] && result[0].status === 'success') {
-            alert(`操作成功！${result[0].alert || ''}`)
+            await showSwalSuccess('操作成功！', result[0].alert || '')
             showOrderModal.value = false
             await loadData()
         } else {
-            alert(result[0]?.alert || '操作失敗，請稍後再試')
+            await showSwalError('操作失敗', result[0]?.alert || '請稍後再試')
         }
     } catch (err) {
         console.error(err)
-        alert('系統異常')
+        await showSwalError('系統異常')
     } finally {
         orderLoading.value = false
     }
@@ -1638,10 +1699,10 @@ const handleShareOrderList = async () => {
     try {
         if (window.liff && window.liff.isInClient()) {
             const res = await window.liff.shareTargetPicker([{ type: 'text', text }])
-            if (res) alert('分享成功！請回到該群組查看訊息。')
+            if (res) await showSwalSuccess('分享成功！', '請回到該群組查看訊息。')
         } else {
             await navigator.clipboard.writeText(text)
-            alert(`已複製分享文案：\n\n${text}`)
+            await showSwalSuccess('已複製分享文案', text)
         }
     } catch (e) {
         if (e?.code !== 'USER_CANCEL') console.error('分享失敗:', e)
@@ -1649,7 +1710,12 @@ const handleShareOrderList = async () => {
 }
 
 const handleDeleteUserOrder = async (userName) => {
-    if (!confirm(`確定要刪除「${userName}」在此品項的訂單嗎？此操作無法復原！`)) return
+    const confirmed = await showSwalConfirm(
+        `確定要刪除「${userName}」在此品項的訂單嗎？`,
+        '此操作無法復原！',
+        '確定刪除'
+    )
+    if (!confirmed) return
 
     try {
         orderLoading.value = true
@@ -1662,17 +1728,17 @@ const handleDeleteUserOrder = async (userName) => {
         })
 
         if (result && result[0] && result[0].status === 'success') {
-            alert(`${userName} 下單品項「${currentOrderTitle.value}」已刪除！`)
+            await showSwalSuccess(`${userName} 下單品項「${currentOrderTitle.value}」已刪除！`)
             rawOrderList.value = rawOrderList.value.filter(item => {
                 const n = item.name || item.姓名 || item.名稱
                 return n !== userName
             })
         } else {
-            alert(result[0]?.alert || '刪除失敗，請稍後再試')
+            await showSwalError('刪除失敗', result[0]?.alert || '請稍後再試')
         }
     } catch (err) {
         console.error(err)
-        alert('系統異常')
+        await showSwalError('系統異常')
     } finally {
         orderLoading.value = false
     }
@@ -1714,11 +1780,11 @@ const handleAction = async (type, row) => {
                 rawOrderList.value = result[0].orders || []
                 orderTotal.value = Number(result[0].total) || 0
             } else {
-                alert(result[0]?.alert || '讀取訂單失敗')
+                await showSwalError('讀取訂單失敗', result[0]?.alert || '請稍後再試')
             }
         } catch (err) {
             console.error(err)
-            alert('系統異常')
+            await showSwalError('系統異常')
         } finally {
             orderLoading.value = false
         }
@@ -1742,7 +1808,12 @@ const handleAction = async (type, row) => {
 
     const title = type === 'chkout' ? '結單' : type === 'delete' ? '刪除' : ''
     if (!title) return
-    if (!confirm(`你確定要${title}品項「${row.名稱}」嗎？此操作無法復原！`)) return
+    const confirmed = await showSwalConfirm(
+        `你確定要${title}品項「${row.名稱}」嗎？`,
+        '此操作無法復原！',
+        `確定${title}`
+    )
+    if (!confirmed) return
 
     try {
         loading.value = true
@@ -1753,38 +1824,38 @@ const handleAction = async (type, row) => {
             name: row.名稱
         })
         if (result && result[0] && result[0].status === 'success') {
-            alert(`${title}成功！${result[0].alert || ''}`)
+            await showSwalSuccess(`${title}成功！`, result[0].alert || '')
             await loadData()
         } else {
-            alert(`${title}失敗: ${result[0]?.alert || '請稍後再試'}`)
+            await showSwalError(`${title}失敗`, result[0]?.alert || '請稍後再試')
         }
     } catch (err) {
         console.error(err)
-        alert('系統異常')
+        await showSwalError('系統異常')
     } finally {
         loading.value = false
     }
 }
 
 // ==================== 圖片上傳處理 ====================
-const handleImageUpload = (event, target) => {
+const handleImageUpload = async (event, target) => {
     const files = Array.from(event.target.files || [])
     const targetList = target === 'add' ? newItemForm.images : editForm.images
 
     if (targetList.length + files.length > 3) {
-        alert('最多只能上傳 3 張圖片')
+        await showSwalInfo('最多只能上傳 3 張圖片')
         event.target.value = ''
         return
     }
 
-    files.forEach(file => {
+    for (const file of files) {
         if (!['image/jpeg', 'image/png'].includes(file.type)) {
-            alert(`${file.name} 格式錯誤，只允許 JPG 或 PNG`)
-            return
+            await showSwalError('圖片格式錯誤', `${file.name} 只允許 JPG 或 PNG`)
+            continue
         }
         if (file.size > 5 * 1024 * 1024) {
-            alert(`${file.name} 超過 5MB 限制`)
-            return
+            await showSwalError('圖片超過大小限制', `${file.name} 超過 5MB 限制`)
+            continue
         }
 
         const reader = new FileReader()
@@ -1797,7 +1868,7 @@ const handleImageUpload = (event, target) => {
             })
         }
         reader.readAsDataURL(file)
-    })
+    }
 
     event.target.value = ''
 }
@@ -1898,13 +1969,16 @@ const handleSelectOldItem = () => {
     })
 }
 
-const showAiDescription = () => {
-    alert('AI 命名助手：助手將會一次產生三組名稱，產生後點擊該名稱即可套用至品項名稱上！')
+const showAiDescription = async () => {
+    await showSwalInfo(
+        'AI 命名助手說明',
+        '助手將會一次產生三組名稱，產生後點擊該名稱即可套用至品項名稱上！'
+    )
 }
 
 const handleAiHelp = async (mode) => {
     if (!newItemForm.name.trim()) {
-        alert('請先輸入品項名稱！')
+        await showSwalInfo('請先輸入品項名稱！')
         return
     }
     try {
@@ -1927,13 +2001,13 @@ const handleAiHelp = async (mode) => {
             } catch {
                 // 若非 JSON 陣列則直接提示
             }
-            alert(rawText)
+            await showSwalInfo('AI 建議結果', rawText)
         } else {
-            alert(result[0]?.alert || '撰寫失敗，已達每月使用上限！')
+            await showSwalError('AI 命名失敗', result[0]?.alert || '撰寫失敗，已達每月使用上限！')
         }
     } catch (err) {
         console.error(err)
-        alert('AI 服務連線異常')
+        await showSwalError('AI 服務連線異常')
     } finally {
         submittingItem.value = false
     }
@@ -1941,20 +2015,20 @@ const handleAiHelp = async (mode) => {
 
 const submitAddItem = async () => {
     if (!userId.value) {
-        alert('⚠️ 尚未取得 userId')
+        await showSwalError('尚未取得 userId')
         return
     }
     if (!newItemForm.name.trim()) {
-        alert('請填寫名稱')
+        await showSwalInfo('請填寫品項名稱')
         return
     }
 
     if (newItemForm.scheduleType === 'group_time' && (!newItemForm.startDate || !newItemForm.endDate)) {
-        alert('請輸入團購期間！')
+        await showSwalInfo('請輸入團購期間！')
         return
     }
     if (newItemForm.scheduleType === 'custom_time' && (!newItemForm.scheduleStartDate || !newItemForm.scheduleEndDate)) {
-        alert('請輸入自訂時間！')
+        await showSwalInfo('請輸入自訂時間！')
         return
     }
 
@@ -1970,11 +2044,11 @@ const submitAddItem = async () => {
         const p = parseInt(newItemForm.price, 10)
         const limitVal = parseInt(newItemForm.singleLimit, 10)
         if (!p || p <= 0) {
-            alert('價格不能為 0 或小於 0')
+            await showSwalInfo('價格不能為 0 或小於 0')
             return
         }
         if (isNaN(limitVal) || limitVal < 0) {
-            alert('請輸入有效的限量')
+            await showSwalInfo('請輸入有效的限量')
             return
         }
         pricePayload.push(p)
@@ -1985,7 +2059,7 @@ const submitAddItem = async () => {
             const p = parseInt(row.price, 10)
             const limitVal = parseInt(row.limit, 10)
             if (!fName || isNaN(limitVal) || limitVal < 0 || !p || p <= 0) {
-                alert('請填寫所有口味與有效數量及價格')
+                await showSwalInfo('請填寫所有口味與有效數量及價格')
                 return
             }
             pricePayload.push(p)
@@ -2015,15 +2089,15 @@ const submitAddItem = async () => {
         })
 
         if (result && result[0] && result[0].status === 'success') {
-            alert(`品項「${newItemForm.name.trim()}」已新增！`)
+            await showSwalSuccess(`品項「${newItemForm.name.trim()}」已新增！`)
             closeAddItemModal()
             await loadData()
         } else {
-            alert(result[0]?.alert || '送出失敗，請稍後再試')
+            await showSwalError('新增失敗', result[0]?.alert || '送出失敗，請稍後再試')
         }
     } catch (err) {
         console.error(err)
-        alert('系統異常')
+        await showSwalError('系統異常')
     } finally {
         submittingItem.value = false
     }
@@ -2097,7 +2171,7 @@ const submitEditItem = async () => {
             const p = parseInt(row.price, 10)
             const limitVal = parseInt(row.limit, 10)
             if (!fName || isNaN(limitVal) || limitVal < 0 || !p || p <= 0) {
-                alert('請填寫所有口味與有效數量及價格')
+                await showSwalInfo('請填寫所有口味與有效數量及價格')
                 return
             }
             flavorsPayload.push({ flavor: fName, num: limitVal, price: p })
@@ -2107,7 +2181,7 @@ const submitEditItem = async () => {
         const p = parseInt(editForm.editPrice, 10)
         const limitVal = parseInt(editForm.editNum, 10) || 0
         if (!p || p <= 0) {
-            alert('請輸入有效的價格')
+            await showSwalInfo('請輸入有效的價格')
             return
         }
         flavorsPayload.push({ flavor: '', num: limitVal, price: p })
@@ -2134,15 +2208,15 @@ const submitEditItem = async () => {
         })
 
         if (result && result[0] && result[0].status === 'success') {
-            alert('編輯成功！')
+            await showSwalSuccess('編輯成功！')
             showEditModal.value = false
             await loadData()
         } else {
-            alert(result[0]?.alert || '編輯失敗，請稍後再試')
+            await showSwalError('編輯失敗', result[0]?.alert || '請稍後再試')
         }
     } catch (err) {
         console.error(err)
-        alert('系統異常')
+        await showSwalError('系統異常')
     } finally {
         submittingItem.value = false
     }
@@ -2208,11 +2282,11 @@ const generateAiCartCopy = async () => {
         if (result && result[0] && result[0].status === 'success') {
             cartContentText.value = result[0].text || ''
         } else {
-            alert(result[0]?.alert || '撰寫失敗，已達每月使用上限！')
+            await showSwalError('AI 文案生成失敗', result[0]?.alert || '撰寫失敗，已達每月使用上限！')
         }
     } catch (err) {
         console.error(err)
-        alert('AI 文案生成異常')
+        await showSwalError('AI 文案生成異常')
     } finally {
         generatingAiCopy.value = false
     }
@@ -2221,9 +2295,9 @@ const generateAiCartCopy = async () => {
 const copyCartText = async () => {
     try {
         await navigator.clipboard.writeText(cartContentText.value)
-        alert('已複製團購文案！')
+        await showSwalSuccess('已複製團購文案！')
     } catch {
-        alert('複製失敗，請手動選取複製')
+        await showSwalInfo('複製失敗，請手動選取複製')
     }
 }
 
@@ -2235,12 +2309,12 @@ const shareCartToLine = async () => {
         if (window.liff && window.liff.isInClient()) {
             const result = await window.liff.shareTargetPicker([{ type: 'text', text }])
             if (result && result.status !== 'cancel') {
-                alert('開團成功！請回到分享該群組查看訊息哦！')
+                await showSwalSuccess('開團成功！', '請回到分享該群組查看訊息哦！')
                 showCartModal.value = false
             }
         } else {
             await navigator.clipboard.writeText(text)
-            alert(`已複製開團文案（非 LINE 內建瀏覽器環境）：\n\n${text}`)
+            await showSwalSuccess('已複製開團文案（非 LINE 內建瀏覽器環境）', text)
         }
     } catch (e) {
         if (e?.code !== 'USER_CANCEL') console.error('分享失敗:', e)
@@ -2303,11 +2377,11 @@ const handleAgentNameTypeChange = async () => {
 const submitAgentOrder = async () => {
     const validRows = agentForm.rows.filter(r => r.name.trim() && Number(r.qty) > 0)
     if (validRows.length === 0) {
-        alert('請填寫代訂姓名與有效數量')
+        await showSwalInfo('請填寫代訂姓名與有效數量')
         return
     }
     if (agentForm.isMultiFlavor && validRows.some(r => !r.flavor)) {
-        alert('請為每筆代購選擇口味')
+        await showSwalInfo('請為每筆代購選擇口味')
         return
     }
 
@@ -2327,15 +2401,15 @@ const submitAgentOrder = async () => {
         })
 
         if (result && result[0] && result[0].status === 'success') {
-            alert(`${result[0].alert || '代購成功'}！請到管理訂單查看訂單明細`)
+            await showSwalSuccess(result[0].alert || '代購成功！', '請到管理訂單查看訂單明細')
             showAgentModal.value = false
             await loadData()
         } else {
-            alert(result[0]?.alert || '代訂失敗，請稍後再試')
+            await showSwalError('代訂失敗', result[0]?.alert || '請稍後再試')
         }
     } catch (err) {
         console.error(err)
-        alert('系統異常')
+        await showSwalError('系統異常')
     } finally {
         submittingItem.value = false
     }
@@ -2402,7 +2476,7 @@ const ensureHistoryCacheLoaded = async () => {
             }
         } catch (err) {
             console.error(err)
-            alert('歷史資料載入失敗')
+            await showSwalError('歷史資料載入失敗')
         } finally {
             historyLoading.value = false
         }
@@ -2428,7 +2502,7 @@ const reloadHistoryCache = async () => {
     localStorage.removeItem('flv_list')
     localStorage.removeItem('emp_list')
     await ensureHistoryCacheLoaded()
-    alert('歷史快取資料已重新同步！')
+    await showSwalSuccess('歷史快取資料已重新同步！')
 }
 
 const searchPrdOptions = computed(() => {
@@ -2457,14 +2531,84 @@ const searchEmpOptions = computed(() => {
 })
 
 const getHistoryRowFlavors = (itemId) => {
-    return cachedSearchFlvs.value.filter(flv => Number(flv.品項ID) === Number(itemId))
+    return cachedSearchFlvs.value.filter(flv => String(flv.品項ID || flv.ID) === String(itemId))
+}
+
+const reopenFromHistory = (hRow) => {
+    if (!hRow) return
+
+    openAddItemModal()
+    activeMainTab.value = 'items'
+
+    newItemForm.itemType = 'new'
+    newItemForm.name = hRow.名稱 || ''
+
+    const historyFlvRecs = getHistoryRowFlavors(hRow.ID)
+    const fallbackFlvRecs = historyFlvRecs.length > 0 ? historyFlvRecs : getItemFlavorRecords(hRow.ID)
+    const validMultiFlvs = fallbackFlvRecs.filter(f => f.口味 && String(f.口味).trim() !== '')
+
+    if (hRow.售價 === '---' || validMultiFlvs.length > 0) {
+        newItemForm.flavorType = 'multiple'
+        if (validMultiFlvs.length > 0) {
+            newItemForm.flavors = validMultiFlvs.map(f => ({
+                price: f.價格 || '',
+                name: f.口味 || '',
+                limit: Number(f.限量) || 0
+            }))
+        } else {
+            newItemForm.flavors = [
+                { price: '', name: '', limit: 0 },
+                { price: '', name: '', limit: 0 }
+            ]
+        }
+    } else {
+        newItemForm.flavorType = 'single'
+        newItemForm.price = hRow.售價 || ''
+
+        const limitFromRow = Number(hRow.限量) || 0
+        const limitFromFlv = Number(fallbackFlvRecs[0]?.限量) || 0
+        newItemForm.singleLimit = limitFromRow > 0 ? limitFromRow : limitFromFlv
+    }
+
+    const rawFromHistory = fallbackFlvRecs
+        .map(r => r.圖片)
+        .find(img => img && String(img).trim() !== '')
+
+    let imgUrls = rawFromHistory ? parseRawImageString(rawFromHistory) : []
+    if (imgUrls.length === 0) {
+        imgUrls = getItemImageUrls(hRow.ID, hRow.名稱)
+    }
+    if (imgUrls.length === 0 && hRow.名稱) {
+        const sameNamePrds = cachedSearchPrds.value.filter(
+            p => p.名稱 === hRow.名稱 && String(p.ID) !== String(hRow.ID)
+        )
+        for (const other of sameNamePrds) {
+            const otherRaw = getHistoryRowFlavors(other.ID)
+                .map(r => r.圖片)
+                .find(img => img && String(img).trim() !== '')
+            if (otherRaw) {
+                imgUrls = parseRawImageString(otherRaw)
+                break
+            }
+        }
+    }
+
+    newItemForm.images = imgUrls.slice(0, 3).map(url => {
+        const filename = url.replace(CLOUDINARY_BASE_URL, '')
+        return {
+            filename,
+            mimeType: 'uploaded',
+            data: '',
+            previewUrl: url
+        }
+    })
 }
 
 const barColors = ['#0284c7', '#059669', '#d97706', '#dc2626', '#7c3aed', '#0d9488']
 
 const executeOrderSearch = async () => {
     if (!searchForm.selectedPrd) {
-        alert('請選擇要查詢的品項')
+        await showSwalInfo('請選擇要查詢的品項')
         return
     }
 
@@ -2505,7 +2649,7 @@ const executeOrderSearch = async () => {
         })
 
         if (!res || !res[0] || res[0].status !== 'success') {
-            alert('載入統計資料失敗')
+            await showSwalError('載入統計資料失敗')
             return
         }
 
@@ -2523,7 +2667,8 @@ const executeOrderSearch = async () => {
         if (!hasMulti) {
             historyPriceSeries.value = filtered.map(item => ({
                 label: `${String(item.開啟時間 || '').slice(5, 10)} 開團`,
-                pricesText: `$${item.售價}`
+                pricesText: `$${item.售價}`,
+                sourceRow: item
             }))
         } else {
             const flvData = res[0].data?.flv || {}
@@ -2532,7 +2677,8 @@ const executeOrderSearch = async () => {
                 const txt = arr.map(a => `${a[2]} $${a[4]}`).join('、') || '---'
                 return {
                     label: `${String(item.開啟時間 || '').slice(5, 10)} 開團`,
-                    pricesText: txt
+                    pricesText: txt,
+                    sourceRow: item
                 }
             })
         }
@@ -2541,7 +2687,7 @@ const executeOrderSearch = async () => {
         showSearchModal.value = false
     } catch (err) {
         console.error(err)
-        alert('查詢統計異常')
+        await showSwalError('查詢統計異常')
     } finally {
         historyLoading.value = false
     }
@@ -2549,7 +2695,7 @@ const executeOrderSearch = async () => {
 
 const executeEmpSearch = async () => {
     if (!searchForm.selectedEmp) {
-        alert('請選擇人員')
+        await showSwalInfo('請選擇人員')
         return
     }
 
@@ -2571,7 +2717,7 @@ const executeEmpSearch = async () => {
         })
 
         if (!res || !res[0] || res[0].status !== 'success') {
-            alert('載入失敗，尚未有該人員購買紀錄！')
+            await showSwalInfo('查無購買紀錄', '尚未有該人員購買紀錄！')
             return
         }
 
@@ -2592,7 +2738,7 @@ const executeEmpSearch = async () => {
         showSearchModal.value = false
     } catch (err) {
         console.error(err)
-        alert('查詢人員購買紀錄異常')
+        await showSwalError('查詢人員購買紀錄異常')
     } finally {
         historyLoading.value = false
     }
@@ -2915,6 +3061,35 @@ onUnmounted(() => {
     padding: 5px 0;
 }
 
+.btn-view-half {
+    flex: 1;
+    background-color: #fffbeb;
+    color: #b45309;
+    border: 1px solid #fde68a;
+    padding: 5px 4px;
+}
+
+.btn-reopen-half {
+    flex: 1;
+    background-color: #f0fdf4;
+    color: #15803d;
+    border: 1px solid #bbf7d0;
+    padding: 5px 4px;
+}
+
+.btn-reopen-mini {
+    background-color: #f0fdf4;
+    color: #15803d;
+    border: 1px solid #86efac;
+    border-radius: 6px;
+    padding: 3px 8px;
+    font-size: 0.74rem;
+    font-weight: 700;
+    cursor: pointer;
+    white-space: nowrap;
+    flex-shrink: 0;
+}
+
 .btn-primary-soft { background-color: #eff6ff; color: #1d4ed8; flex: 1; }
 .btn-success-soft { background-color: #f0fdf4; color: #15803d; flex: 1; }
 .btn-more { background-color: #f1f5f9; color: #475569; width: 100%; }
@@ -3010,9 +3185,18 @@ onUnmounted(() => {
 .price-trend-row {
     display: flex;
     justify-content: space-between;
-    padding: 5px 0;
+    align-items: center;
+    gap: 8px;
+    padding: 6px 0;
     border-bottom: 1px dashed #e2e8f0;
     font-size: 0.8rem;
+}
+
+.trend-left-info {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    flex: 1;
 }
 
 .trend-name { color: #475569; font-weight: 600; }
@@ -3657,9 +3841,13 @@ onUnmounted(() => {
 .loading-state, .empty-state { text-align: center; padding: 24px 12px; color: #64748b; font-size: 0.9rem; }
 </style>
 
-<!-- 確保 flatpickr 日曆彈窗蓋在 bottom-sheet-modal (z-index: 1000) 之上 -->
+<!-- 確保 flatpickr 日曆彈窗與 SweetAlert2 都在底部抽屜彈窗之上 -->
 <style>
 .flatpickr-calendar {
     z-index: 1100 !important;
+}
+
+.swal2-container {
+    z-index: 2000 !important;
 }
 </style>
