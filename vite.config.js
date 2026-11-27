@@ -19,16 +19,16 @@ export default defineConfig({
                 index: resolve(import.meta.dirname, 'index.html'),
                 main: resolve(import.meta.dirname, 'manager.html'),
                 order: resolve(import.meta.dirname, 'order.html')
-          },
-          output: {
-              manualChunks(id) {
-                  if (id.includes('node_modules')) {
-                      if (id.includes('@fullcalendar')) return 'fullcalendar'
-                      if (id.includes('swiper')) return 'swiper'
-                      return 'vendor'
-                  }
-              }
           }
+          // output: {
+          //     manualChunks(id) {
+          //         if (id.includes('node_modules')) {
+          //             if (id.includes('@fullcalendar')) return 'fullcalendar'
+          //             if (id.includes('swiper')) return 'swiper'
+          //             return 'vendor'
+          //         }
+          //     }
+          // }
       }
   }
 })
