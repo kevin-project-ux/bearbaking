@@ -1,16 +1,12 @@
 <template>
-    <!-- 買家下單畫面：網址帶 ?name=... 時顯示，獨立於主揪後台與底部導覽列 -->
-    <CustomerOrder v-if="isCustomerOrderPage" />
-
-    <!-- 主揪管理後台 -->
-    <div v-else id="app" class="app-container">
+    <div id="app" class="app-container">
         <!-- 載入中遮罩 (Mask) -->
         <div v-if="globalMask" class="global-mask">
             <div class="spinner"></div>
             <p>載入中...</p>
         </div>
 
-        <!-- 頂部導覽列或歡迎詞 (可選) -->
+        <!-- 頂部導覽列或歡迎詞 -->
         <header v-if="userName" class="app-header">
             <span class="welcome-text">歡迎, <b>{{ userName }}</b></span>
         </header>
@@ -30,12 +26,11 @@
 </template>
 
 <script setup>
-import { ref, computed, onMounted } from 'vue'
+import { ref, onMounted } from 'vue'
 import ItemTable from './components/ItemTable.vue'
 import FormulaTab from './components/FormulaTab.vue'
 import ScheduleTab from './components/ScheduleTab.vue'
 import BottomNav from './components/BottomNav.vue'
-import CustomerOrder from './components/CustomerOrder.vue'
 
 const MANAGER_LIFF_ID = '2007457926-6GlfMVC3'
 
@@ -45,23 +40,14 @@ const userId = ref('')
 const liffReady = ref(false)
 const currentTab = ref('orders') // 'orders' | 'formula' | 'schedule'
 
-// 檢查網址是否帶有 ?name= 參數，決定是否走買家下單畫面
-const isCustomerOrderPage = computed(() => {
-    const params = new URLSearchParams(window.location.search)
-    return Boolean((params.get('name') || '').trim())
-})
-
-// 檢查 LocalStorage 快取的驗證函式 (對應您原本的邏輯)
 const isUserAuthenticated = (uid) => {
     const authTime = localStorage.getItem(`auth_${uid}`)
     if (!authTime) return false
-    // 範例：快取 24 小時有效
     const now = new Date().getTime()
     return (now - Number(authTime)) < 24 * 60 * 60 * 1000
 }
 
 const authUser = async (uid) => {
-    // 這裡可串接您的後端驗證 API
     localStorage.setItem(`auth_${uid}`, new Date().getTime().toString())
 }
 
@@ -75,22 +61,15 @@ const isLocalhost = () => {
 }
 
 onMounted(async () => {
-    // 買家下單頁由 CustomerOrder.vue 自行處理該頁 LIFF 與 ?name= 登入跳轉
-    if (isCustomerOrderPage.value) {
-        return
-    }
-
     try {
         globalMask.value = true
 
-        // 先檢查網址參數或 cached_userId 作為備援
         const urlParams = new URLSearchParams(window.location.search)
         const fallbackUserId =
             urlParams.get('userId') ||
             localStorage.getItem('cached_userId') ||
             ''
 
-        // 1. 初始化 LIFF
         if (window.liff && !isLocalhost()) {
             await window.liff.init({ liffId: MANAGER_LIFF_ID })
 
@@ -99,23 +78,20 @@ onMounted(async () => {
                 return
             }
 
-            // 2. 取得使用者 Profile 與 Token
             const profile = await window.liff.getProfile()
 
-            // 3. 同步更新響應式狀態、localStorage 與全域 window 變數
             userId.value = profile.userId
             userName.value = profile.displayName
             window.userId = profile.userId
             window.userName = profile.displayName
             localStorage.setItem('cached_userId', profile.userId)
 
-            // 4. LocalStorage 快取驗證與資料載入
             if (!isUserAuthenticated(profile.userId)) {
                 await authUser(profile.userId)
             }
         } else {
             console.warn('LIFF SDK 未載入或處於本機開發環境，使用測試/快取身分')
-            const devUserId = fallbackUserId || 'Ua498c406bab8b3ace091a09064047e1d'
+            const devUserId = fallbackUserId || 'test'
             userId.value = devUserId
             userName.value = '測試管理員'
             window.userId = devUserId
@@ -141,7 +117,6 @@ onMounted(async () => {
 </script>
 
 <style>
-/* 全域 App 樣式 */
 body {
     margin: 0;
     padding: 0;
@@ -173,10 +148,9 @@ body {
 
 .app-content {
     flex: 1;
-    padding-bottom: 72px; /* 預留底部導覽列高度，避免遮住內容 */
+    padding-bottom: 72px;
 }
 
-/* 全域遮罩樣式 */
 .global-mask {
     position: fixed;
     top: 0;

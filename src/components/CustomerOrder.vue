@@ -120,12 +120,29 @@ import Swiper from 'swiper'
 import { Autoplay } from 'swiper/modules'
 import 'swiper/css'
 
-const LIFF_ID = '2007457926-DVgm8yJO'
+const LIFF_ID = '2007457926-zZpL9OHZ'
 const GAS_URL = 'https://script.google.com/macros/s/AKfycby9FDii0ihOn_GKNOtxyxOo1bTvOaEt6X8OEu82dahqYvJUJ0t-mLQ3zUAp1n8onj8bFQ/exec'
 const CLOUDINARY_BASE_URL = 'https://res.cloudinary.com/dwavqm0sh/image/upload/'
+const PENDING_NAME_KEY = 'pending_customer_order_name'
+
+const resolveInitialItemName = () => {
+    const params = new URLSearchParams(window.location.search)
+    const fromQuery = (params.get('name') || '').trim()
+    if (fromQuery) {
+        sessionStorage.setItem(PENDING_NAME_KEY, fromQuery)
+        return fromQuery
+    }
+
+    const fromStorage = (sessionStorage.getItem(PENDING_NAME_KEY) || '').trim()
+    if (fromStorage) {
+        return fromStorage
+    }
+
+    return ''
+}
 
 const params = new URLSearchParams(window.location.search)
-const itemName = ref((params.get('name') || '').trim())
+const itemName = ref(resolveInitialItemName())
 
 const userId = ref('')
 const userName = ref('')
@@ -256,6 +273,7 @@ const fetchCart = async () => {
         if (Array.isArray(data) && data[0] && typeof data[0].status !== 'undefined') {
             expiredOrMissing.value = true
             cart.value = []
+            sessionStorage.removeItem(PENDING_NAME_KEY)
             await Swal.fire({
                 icon: 'warning',
                 title: '查無該品項',
@@ -288,7 +306,6 @@ const initLiff = async () => {
 
     const liff = window.liff
     if (!liff) {
-        // 本機或無 LIFF SDK 測試備援
         userId.value = params.get('userId') || localStorage.getItem('cached_userId') || 'test_buyer'
         userName.value = params.get('userName') || '測試買家'
         liffReady.value = true
@@ -299,10 +316,10 @@ const initLiff = async () => {
     try {
         await liff.init({ liffId: LIFF_ID })
         if (!liff.isLoggedIn()) {
-            const redirectUri = `${window.location.origin}${window.location.pathname}?name=${encodeURIComponent(itemName.value)}`
+            sessionStorage.setItem(PENDING_NAME_KEY, itemName.value)
+            const cleanRedirectUri = `${window.location.origin}${window.location.pathname}`
             liff.login({
-                redirectUri,
-                state: itemName.value
+                redirectUri: cleanRedirectUri
             })
             return
         }
